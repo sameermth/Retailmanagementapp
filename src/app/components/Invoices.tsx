@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Search, Eye, Trash2, Download, Calendar } from "lucide-react";
+import { Plus, Search, Eye, Trash2, Download, FileText, ArrowRight } from "lucide-react";
 
 interface InventoryItem {
   id: string;
@@ -38,13 +38,34 @@ interface Invoice {
   paymentMethod?: string;
 }
 
+interface Quotation {
+  id: string;
+  quotationNumber: string;
+  date: string;
+  validUntil: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  customerAddress: string;
+  items: InvoiceItem[];
+  subtotal: number;
+  totalGst: number;
+  grandTotal: number;
+  status: "pending" | "accepted" | "rejected" | "converted";
+  notes?: string;
+}
+
 export function Invoices() {
+  const [activeTab, setActiveTab] = useState<"invoices" | "quotations">("invoices");
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [formType, setFormType] = useState<"invoice" | "quotation">("invoice");
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
+  const [viewQuotation, setViewQuotation] = useState<Quotation | null>(null);
   const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
   const [formData, setFormData] = useState({
     customerName: "",
@@ -52,22 +73,31 @@ export function Invoices() {
     customerPhone: "",
     customerAddress: "",
     date: new Date().toISOString().split("T")[0],
+    validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     paymentMethod: "cash",
+    notes: "",
   });
 
   useEffect(() => {
     const storedInvoices = localStorage.getItem("invoices");
+    const storedQuotations = localStorage.getItem("quotations");
     const storedInventory = localStorage.getItem("inventory");
     const storedCustomers = localStorage.getItem("customers");
     
     if (storedInvoices) setInvoices(JSON.parse(storedInvoices));
+    if (storedQuotations) setQuotations(JSON.parse(storedQuotations));
     if (storedInventory) setInventory(JSON.parse(storedInventory));
     if (storedCustomers) setCustomers(JSON.parse(storedCustomers));
   }, []);
 
-  const saveToLocalStorage = (data: Invoice[]) => {
+  const saveInvoicesToLocalStorage = (data: Invoice[]) => {
     localStorage.setItem("invoices", JSON.stringify(data));
     setInvoices(data);
+  };
+
+  const saveQuotationsToLocalStorage = (data: Quotation[]) => {
+    localStorage.setItem("quotations", JSON.stringify(data));
+    setQuotations(data);
   };
 
   const generateInvoiceNumber = () => {
@@ -76,6 +106,14 @@ export function Invoices() {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const random = Math.floor(Math.random() * 10000);
     return `INV-${year}${month}-${random}`;
+  };
+
+  const generateQuotationNumber = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const random = Math.floor(Math.random() * 10000);
+    return `QUO-${year}${month}-${random}`;
   };
 
   const addItemToInvoice = (itemId: string, quantity: number) => {
@@ -144,29 +182,49 @@ export function Invoices() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (invoiceItems.length === 0) {
-      alert("Please add at least one item to the invoice");
+      alert("Please add at least one item");
       return;
     }
 
     const { subtotal, totalGst, grandTotal } = calculateTotals();
     
-    const newInvoice: Invoice = {
-      id: Date.now().toString(),
-      invoiceNumber: generateInvoiceNumber(),
-      date: formData.date,
-      customerName: formData.customerName,
-      customerEmail: formData.customerEmail,
-      customerPhone: formData.customerPhone,
-      customerAddress: formData.customerAddress,
-      items: invoiceItems,
-      subtotal,
-      totalGst,
-      grandTotal,
-      status: "unpaid",
-      paymentMethod: formData.paymentMethod,
-    };
-
-    saveToLocalStorage([...invoices, newInvoice]);
+    if (formType === "invoice") {
+      const newInvoice: Invoice = {
+        id: Date.now().toString(),
+        invoiceNumber: generateInvoiceNumber(),
+        date: formData.date,
+        customerName: formData.customerName,
+        customerEmail: formData.customerEmail,
+        customerPhone: formData.customerPhone,
+        customerAddress: formData.customerAddress,
+        items: invoiceItems,
+        subtotal,
+        totalGst,
+        grandTotal,
+        status: "unpaid",
+        paymentMethod: formData.paymentMethod,
+      };
+      saveInvoicesToLocalStorage([...invoices, newInvoice]);
+    } else {
+      const newQuotation: Quotation = {
+        id: Date.now().toString(),
+        quotationNumber: generateQuotationNumber(),
+        date: formData.date,
+        validUntil: formData.validUntil,
+        customerName: formData.customerName,
+        customerEmail: formData.customerEmail,
+        customerPhone: formData.customerPhone,
+        customerAddress: formData.customerAddress,
+        items: invoiceItems,
+        subtotal,
+        totalGst,
+        grandTotal,
+        status: "pending",
+        notes: formData.notes,
+      };
+      saveQuotationsToLocalStorage([...quotations, newQuotation]);
+    }
+    
     resetForm();
   };
 
@@ -177,7 +235,9 @@ export function Invoices() {
       customerPhone: "",
       customerAddress: "",
       date: new Date().toISOString().split("T")[0],
+      validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       paymentMethod: "cash",
+      notes: "",
     });
     setInvoiceItems([]);
     setShowForm(false);
@@ -186,7 +246,14 @@ export function Invoices() {
   const handleDelete = (id: string) => {
     if (confirm("Are you sure you want to delete this invoice?")) {
       const filtered = invoices.filter((inv) => inv.id !== id);
-      saveToLocalStorage(filtered);
+      saveInvoicesToLocalStorage(filtered);
+    }
+  };
+
+  const handleDeleteQuotation = (id: string) => {
+    if (confirm("Are you sure you want to delete this quotation?")) {
+      const filtered = quotations.filter((quo) => quo.id !== id);
+      saveQuotationsToLocalStorage(filtered);
     }
   };
 
@@ -194,7 +261,41 @@ export function Invoices() {
     const updated = invoices.map((inv) =>
       inv.id === id ? { ...inv, status } : inv
     );
-    saveToLocalStorage(updated);
+    saveInvoicesToLocalStorage(updated);
+  };
+
+  const updateQuotationStatus = (id: string, status: "pending" | "accepted" | "rejected" | "converted") => {
+    const updated = quotations.map((quo) =>
+      quo.id === id ? { ...quo, status } : quo
+    );
+    saveQuotationsToLocalStorage(updated);
+  };
+
+  const convertQuotationToInvoice = (quotation: Quotation) => {
+    if (quotation.status === "converted") {
+      alert("This quotation has already been converted to an invoice");
+      return;
+    }
+
+    const newInvoice: Invoice = {
+      id: Date.now().toString(),
+      invoiceNumber: generateInvoiceNumber(),
+      date: new Date().toISOString().split("T")[0],
+      customerName: quotation.customerName,
+      customerEmail: quotation.customerEmail,
+      customerPhone: quotation.customerPhone,
+      customerAddress: quotation.customerAddress,
+      items: quotation.items,
+      subtotal: quotation.subtotal,
+      totalGst: quotation.totalGst,
+      grandTotal: quotation.grandTotal,
+      status: "unpaid",
+    };
+
+    saveInvoicesToLocalStorage([...invoices, newInvoice]);
+    updateQuotationStatus(quotation.id, "converted");
+    setViewQuotation(null);
+    alert(`Quotation ${quotation.quotationNumber} has been converted to Invoice ${newInvoice.invoiceNumber}`);
   };
 
   const selectCustomer = (customerId: string) => {
@@ -215,21 +316,65 @@ export function Invoices() {
     inv.customerName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const filteredQuotations = quotations.filter((quo) =>
+    quo.quotationNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    quo.customerName.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const { subtotal, totalGst, grandTotal } = calculateTotals();
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl mb-2">Invoices</h1>
-          <p className="text-gray-600">Create and manage GST invoices</p>
+          <h1 className="text-3xl mb-2">Invoices & Quotations</h1>
+          <p className="text-gray-600">Manage invoices and quotations with GST</p>
         </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setFormType("quotation");
+              setShowForm(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+          >
+            <FileText className="w-4 h-4" />
+            New Quotation
+          </button>
+          <button
+            onClick={() => {
+              setFormType("invoice");
+              setShowForm(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="w-4 h-4" />
+            New Invoice
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-4 mb-6 border-b border-gray-200">
         <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          onClick={() => setActiveTab("invoices")}
+          className={`px-4 py-2 border-b-2 transition-colors ${
+            activeTab === "invoices"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-gray-600 hover:text-gray-900"
+          }`}
         >
-          <Plus className="w-4 h-4" />
-          New Invoice
+          Invoices ({invoices.length})
+        </button>
+        <button
+          onClick={() => setActiveTab("quotations")}
+          className={`px-4 py-2 border-b-2 transition-colors ${
+            activeTab === "quotations"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          Quotations ({quotations.length})
         </button>
       </div>
 
@@ -238,7 +383,7 @@ export function Invoices() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
         <input
           type="text"
-          placeholder="Search invoices..."
+          placeholder={`Search ${activeTab}...`}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -246,105 +391,196 @@ export function Invoices() {
       </div>
 
       {/* Invoices Table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-6 py-3 text-sm">Invoice #</th>
-                <th className="text-left px-6 py-3 text-sm">Date</th>
-                <th className="text-left px-6 py-3 text-sm">Customer</th>
-                <th className="text-right px-6 py-3 text-sm">Subtotal</th>
-                <th className="text-right px-6 py-3 text-sm">GST</th>
-                <th className="text-right px-6 py-3 text-sm">Total</th>
-                <th className="text-left px-6 py-3 text-sm">Status</th>
-                <th className="text-center px-6 py-3 text-sm">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredInvoices.map((invoice) => (
-                <tr key={invoice.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm">{invoice.invoiceNumber}</td>
-                  <td className="px-6 py-4 text-sm">
-                    {new Date(invoice.date).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 text-sm">{invoice.customerName}</td>
-                  <td className="px-6 py-4 text-sm text-right">
-                    ${invoice.subtotal.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-right text-orange-600">
-                    ${invoice.totalGst.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-right">
-                    ${invoice.grandTotal.toFixed(2)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <select
-                      value={invoice.status}
-                      onChange={(e) => updateInvoiceStatus(invoice.id, e.target.value as any)}
-                      className={`text-xs px-2 py-1 rounded border-0 ${
-                        invoice.status === "paid"
-                          ? "bg-green-100 text-green-700"
-                          : invoice.status === "unpaid"
-                          ? "bg-yellow-100 text-yellow-700"
-                          : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      <option value="unpaid">Unpaid</option>
-                      <option value="paid">Paid</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => setViewInvoice(invoice)}
-                        className="p-1 hover:bg-gray-100 rounded"
-                      >
-                        <Eye className="w-4 h-4 text-blue-600" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(invoice.id)}
-                        className="p-1 hover:bg-gray-100 rounded"
-                      >
-                        <Trash2 className="w-4 h-4 text-red-600" />
-                      </button>
-                    </div>
-                  </td>
+      {activeTab === "invoices" && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-6 py-3 text-sm">Invoice #</th>
+                  <th className="text-left px-6 py-3 text-sm">Date</th>
+                  <th className="text-left px-6 py-3 text-sm">Customer</th>
+                  <th className="text-right px-6 py-3 text-sm">Subtotal</th>
+                  <th className="text-right px-6 py-3 text-sm">GST</th>
+                  <th className="text-right px-6 py-3 text-sm">Total</th>
+                  <th className="text-left px-6 py-3 text-sm">Status</th>
+                  <th className="text-center px-6 py-3 text-sm">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {filteredInvoices.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
-              No invoices found
-            </div>
-          )}
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredInvoices.map((invoice) => (
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm">{invoice.invoiceNumber}</td>
+                    <td className="px-6 py-4 text-sm">
+                      {new Date(invoice.date).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm">{invoice.customerName}</td>
+                    <td className="px-6 py-4 text-sm text-right">
+                      ${invoice.subtotal.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-right text-orange-600">
+                      ${invoice.totalGst.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-right">
+                      ${invoice.grandTotal.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={invoice.status}
+                        onChange={(e) => updateInvoiceStatus(invoice.id, e.target.value as any)}
+                        className={`text-xs px-2 py-1 rounded border-0 ${
+                          invoice.status === "paid"
+                            ? "bg-green-100 text-green-700"
+                            : invoice.status === "unpaid"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        <option value="unpaid">Unpaid</option>
+                        <option value="paid">Paid</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setViewInvoice(invoice)}
+                          className="p-1 hover:bg-gray-100 rounded"
+                        >
+                          <Eye className="w-4 h-4 text-blue-600" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(invoice.id)}
+                          className="p-1 hover:bg-gray-100 rounded"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredInvoices.length === 0 && (
+              <div className="text-center py-12 text-gray-500">
+                No invoices found
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Create Invoice Form Modal */}
+      {/* Quotations Table */}
+      {activeTab === "quotations" && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-6 py-3 text-sm">Quotation #</th>
+                  <th className="text-left px-6 py-3 text-sm">Date</th>
+                  <th className="text-left px-6 py-3 text-sm">Valid Until</th>
+                  <th className="text-left px-6 py-3 text-sm">Customer</th>
+                  <th className="text-right px-6 py-3 text-sm">Total</th>
+                  <th className="text-left px-6 py-3 text-sm">Status</th>
+                  <th className="text-center px-6 py-3 text-sm">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredQuotations.map((quotation) => (
+                  <tr key={quotation.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm">{quotation.quotationNumber}</td>
+                    <td className="px-6 py-4 text-sm">
+                      {new Date(quotation.date).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {new Date(quotation.validUntil).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm">{quotation.customerName}</td>
+                    <td className="px-6 py-4 text-sm text-right">
+                      ${quotation.grandTotal.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={quotation.status}
+                        onChange={(e) => updateQuotationStatus(quotation.id, e.target.value as any)}
+                        disabled={quotation.status === "converted"}
+                        className={`text-xs px-2 py-1 rounded border-0 ${
+                          quotation.status === "accepted"
+                            ? "bg-green-100 text-green-700"
+                            : quotation.status === "pending"
+                            ? "bg-yellow-100 text-yellow-700"
+                            : quotation.status === "rejected"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-blue-100 text-blue-700"
+                        }`}
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="accepted">Accepted</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="converted">Converted</option>
+                      </select>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setViewQuotation(quotation)}
+                          className="p-1 hover:bg-gray-100 rounded"
+                          title="View"
+                        >
+                          <Eye className="w-4 h-4 text-blue-600" />
+                        </button>
+                        {quotation.status !== "converted" && (
+                          <button
+                            onClick={() => convertQuotationToInvoice(quotation)}
+                            className="p-1 hover:bg-gray-100 rounded"
+                            title="Convert to Invoice"
+                          >
+                            <ArrowRight className="w-4 h-4 text-green-600" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteQuotation(quotation.id)}
+                          className="p-1 hover:bg-gray-100 rounded"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {filteredQuotations.length === 0 && (
+              <div className="text-center py-12 text-gray-500">
+                No quotations found
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Create Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-5xl w-full max-h-[90vh] overflow-y-auto">
-            <h2 className="text-2xl mb-6">Create New Invoice</h2>
-            <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 max-w-5xl w-full my-8">
+            <h2 className="text-2xl mb-6">Create New {formType === "invoice" ? "Invoice" : "Quotation"}</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
               {/* Customer Selection */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-sm mb-2">Select Customer (Optional)</label>
-                  <select
-                    onChange={(e) => selectCustomer(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">-- Select a customer or enter manually --</option>
-                    {customers.map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name} - {customer.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-sm mb-2">Select Customer (Optional)</label>
+                <select
+                  onChange={(e) => selectCustomer(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">-- Select a customer or enter manually --</option>
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name} - {customer.email}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Customer Details */}
@@ -392,6 +628,19 @@ export function Invoices() {
                 </div>
               </div>
 
+              {formType === "quotation" && (
+                <div>
+                  <label className="block text-sm mb-2">Valid Until *</label>
+                  <input
+                    type="date"
+                    required
+                    value={formData.validUntil}
+                    onChange={(e) => setFormData({ ...formData, validUntil: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm mb-2">Address</label>
                 <textarea
@@ -402,9 +651,22 @@ export function Invoices() {
                 />
               </div>
 
+              {formType === "quotation" && (
+                <div>
+                  <label className="block text-sm mb-2">Notes</label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={2}
+                    placeholder="Terms and conditions, special notes..."
+                  />
+                </div>
+              )}
+
               {/* Add Items */}
               <div className="border-t pt-4">
-                <h3 className="text-lg mb-4">Invoice Items</h3>
+                <h3 className="text-lg mb-4">Items</h3>
                 
                 <div className="flex gap-2 mb-4">
                   <select
@@ -437,7 +699,7 @@ export function Invoices() {
                         qtyInput.value = "1";
                       }
                     }}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 whitespace-nowrap"
                   >
                     Add Item
                   </button>
@@ -446,55 +708,57 @@ export function Invoices() {
                 {/* Items List */}
                 {invoiceItems.length > 0 && (
                   <div className="border rounded-lg overflow-hidden mb-4">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="text-left px-4 py-2 text-sm">Item</th>
-                          <th className="text-right px-4 py-2 text-sm">Price</th>
-                          <th className="text-right px-4 py-2 text-sm">Qty</th>
-                          <th className="text-right px-4 py-2 text-sm">GST Rate</th>
-                          <th className="text-right px-4 py-2 text-sm">GST</th>
-                          <th className="text-right px-4 py-2 text-sm">Total</th>
-                          <th className="text-center px-4 py-2 text-sm">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {invoiceItems.map((item) => (
-                          <tr key={item.itemId}>
-                            <td className="px-4 py-2 text-sm">
-                              <div>{item.itemName}</div>
-                              <div className="text-xs text-gray-500">{item.sku}</div>
-                            </td>
-                            <td className="px-4 py-2 text-sm text-right">${item.price.toFixed(2)}</td>
-                            <td className="px-4 py-2 text-sm text-right">
-                              <input
-                                type="number"
-                                min="1"
-                                value={item.quantity}
-                                onChange={(e) => updateItemQuantity(item.itemId, parseInt(e.target.value) || 0)}
-                                className="w-16 px-2 py-1 border border-gray-300 rounded text-center"
-                              />
-                            </td>
-                            <td className="px-4 py-2 text-sm text-right">{item.gstRate}%</td>
-                            <td className="px-4 py-2 text-sm text-right text-orange-600">
-                              ${item.gstAmount.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-2 text-sm text-right">
-                              ${item.total.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-2 text-center">
-                              <button
-                                type="button"
-                                onClick={() => removeItemFromInvoice(item.itemId)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </td>
+                    <div className="max-h-64 overflow-y-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 border-b sticky top-0">
+                          <tr>
+                            <th className="text-left px-4 py-2 text-sm">Item</th>
+                            <th className="text-right px-4 py-2 text-sm">Price</th>
+                            <th className="text-right px-4 py-2 text-sm">Qty</th>
+                            <th className="text-right px-4 py-2 text-sm">GST%</th>
+                            <th className="text-right px-4 py-2 text-sm">GST</th>
+                            <th className="text-right px-4 py-2 text-sm">Total</th>
+                            <th className="text-center px-4 py-2 text-sm w-16"></th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y">
+                          {invoiceItems.map((item) => (
+                            <tr key={item.itemId}>
+                              <td className="px-4 py-2 text-sm">
+                                <div>{item.itemName}</div>
+                                <div className="text-xs text-gray-500">{item.sku}</div>
+                              </td>
+                              <td className="px-4 py-2 text-sm text-right">${item.price.toFixed(2)}</td>
+                              <td className="px-4 py-2 text-sm text-right">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={item.quantity}
+                                  onChange={(e) => updateItemQuantity(item.itemId, parseInt(e.target.value) || 0)}
+                                  className="w-16 px-2 py-1 border border-gray-300 rounded text-center"
+                                />
+                              </td>
+                              <td className="px-4 py-2 text-sm text-right">{item.gstRate}%</td>
+                              <td className="px-4 py-2 text-sm text-right text-orange-600">
+                                ${item.gstAmount.toFixed(2)}
+                              </td>
+                              <td className="px-4 py-2 text-sm text-right">
+                                ${item.total.toFixed(2)}
+                              </td>
+                              <td className="px-4 py-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => removeItemFromInvoice(item.itemId)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
 
@@ -522,7 +786,7 @@ export function Invoices() {
                   type="submit"
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
-                  Create Invoice
+                  Create {formType === "invoice" ? "Invoice" : "Quotation"}
                 </button>
                 <button
                   type="button"
@@ -539,9 +803,8 @@ export function Invoices() {
 
       {/* View Invoice Modal */}
       {viewInvoice && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            {/* Invoice Header */}
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-lg p-8 max-w-4xl w-full my-8">
             <div className="flex justify-between items-start mb-8">
               <div>
                 <h2 className="text-3xl mb-2">INVOICE</h2>
@@ -553,7 +816,6 @@ export function Invoices() {
               </div>
             </div>
 
-            {/* Customer Details */}
             <div className="mb-8 p-4 bg-gray-50 rounded-lg">
               <h3 className="text-sm text-gray-600 mb-2">Bill To:</h3>
               <p className="font-semibold">{viewInvoice.customerName}</p>
@@ -562,7 +824,6 @@ export function Invoices() {
               {viewInvoice.customerAddress && <p className="text-sm">{viewInvoice.customerAddress}</p>}
             </div>
 
-            {/* Items Table */}
             <table className="w-full mb-8">
               <thead className="border-b-2 border-gray-300">
                 <tr>
@@ -591,7 +852,6 @@ export function Invoices() {
               </tbody>
             </table>
 
-            {/* GST Breakdown by Rate */}
             <div className="mb-4 p-4 bg-blue-50 rounded-lg">
               <h3 className="text-sm mb-2">GST Breakdown:</h3>
               {Array.from(new Set(viewInvoice.items.map(i => i.gstRate))).map(rate => {
@@ -607,8 +867,7 @@ export function Invoices() {
               })}
             </div>
 
-            {/* Totals */}
-            <div className="border-t-2 border-gray-300 pt-4">
+            <div className="border-t-2 border-gray-300 pt-4 mb-6">
               <div className="flex justify-between mb-2">
                 <span>Subtotal:</span>
                 <span>${viewInvoice.subtotal.toFixed(2)}</span>
@@ -623,8 +882,7 @@ export function Invoices() {
               </div>
             </div>
 
-            {/* Status Badge */}
-            <div className="mt-6">
+            <div className="mb-6">
               <span
                 className={`inline-block px-4 py-2 rounded text-sm ${
                   viewInvoice.status === "paid"
@@ -638,8 +896,7 @@ export function Invoices() {
               </span>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-3 mt-6">
+            <div className="flex gap-3">
               <button
                 onClick={() => window.print()}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -649,6 +906,140 @@ export function Invoices() {
               </button>
               <button
                 onClick={() => setViewInvoice(null)}
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Quotation Modal */}
+      {viewQuotation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-lg p-8 max-w-4xl w-full my-8">
+            <div className="flex justify-between items-start mb-8">
+              <div>
+                <h2 className="text-3xl mb-2">QUOTATION</h2>
+                <p className="text-gray-600">{viewQuotation.quotationNumber}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-gray-600">Date</p>
+                <p>{new Date(viewQuotation.date).toLocaleDateString()}</p>
+                <p className="text-sm text-gray-600 mt-2">Valid Until</p>
+                <p>{new Date(viewQuotation.validUntil).toLocaleDateString()}</p>
+              </div>
+            </div>
+
+            <div className="mb-8 p-4 bg-gray-50 rounded-lg">
+              <h3 className="text-sm text-gray-600 mb-2">Quotation For:</h3>
+              <p className="font-semibold">{viewQuotation.customerName}</p>
+              {viewQuotation.customerEmail && <p className="text-sm">{viewQuotation.customerEmail}</p>}
+              {viewQuotation.customerPhone && <p className="text-sm">{viewQuotation.customerPhone}</p>}
+              {viewQuotation.customerAddress && <p className="text-sm">{viewQuotation.customerAddress}</p>}
+            </div>
+
+            <table className="w-full mb-8">
+              <thead className="border-b-2 border-gray-300">
+                <tr>
+                  <th className="text-left py-2">Item</th>
+                  <th className="text-right py-2">Price</th>
+                  <th className="text-right py-2">Qty</th>
+                  <th className="text-right py-2">GST Rate</th>
+                  <th className="text-right py-2">GST Amount</th>
+                  <th className="text-right py-2">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {viewQuotation.items.map((item, index) => (
+                  <tr key={index}>
+                    <td className="py-3">
+                      <div>{item.itemName}</div>
+                      <div className="text-xs text-gray-500">{item.sku}</div>
+                    </td>
+                    <td className="text-right py-3">${item.price.toFixed(2)}</td>
+                    <td className="text-right py-3">{item.quantity}</td>
+                    <td className="text-right py-3">{item.gstRate}%</td>
+                    <td className="text-right py-3 text-orange-600">${item.gstAmount.toFixed(2)}</td>
+                    <td className="text-right py-3">${item.total.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+              <h3 className="text-sm mb-2">GST Breakdown:</h3>
+              {Array.from(new Set(viewQuotation.items.map(i => i.gstRate))).map(rate => {
+                const itemsWithRate = viewQuotation.items.filter(i => i.gstRate === rate);
+                const gstForRate = itemsWithRate.reduce((sum, i) => sum + i.gstAmount, 0);
+                const taxableAmount = itemsWithRate.reduce((sum, i) => sum + (i.quantity * i.price), 0);
+                return (
+                  <div key={rate} className="flex justify-between text-sm">
+                    <span>GST @ {rate}% on ${taxableAmount.toFixed(2)}</span>
+                    <span>${gstForRate.toFixed(2)}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="border-t-2 border-gray-300 pt-4 mb-6">
+              <div className="flex justify-between mb-2">
+                <span>Subtotal:</span>
+                <span>${viewQuotation.subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between mb-2 text-orange-600">
+                <span>Total GST:</span>
+                <span>${viewQuotation.totalGst.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xl border-t pt-2 mt-2">
+                <span>Grand Total:</span>
+                <span>${viewQuotation.grandTotal.toFixed(2)}</span>
+              </div>
+            </div>
+
+            {viewQuotation.notes && (
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <h3 className="text-sm mb-2">Notes:</h3>
+                <p className="text-sm">{viewQuotation.notes}</p>
+              </div>
+            )}
+
+            <div className="mb-6">
+              <span
+                className={`inline-block px-4 py-2 rounded text-sm ${
+                  viewQuotation.status === "accepted"
+                    ? "bg-green-100 text-green-700"
+                    : viewQuotation.status === "pending"
+                    ? "bg-yellow-100 text-yellow-700"
+                    : viewQuotation.status === "rejected"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-blue-100 text-blue-700"
+                }`}
+              >
+                Status: {viewQuotation.status.toUpperCase()}
+              </span>
+            </div>
+
+            <div className="flex gap-3">
+              {viewQuotation.status !== "converted" && (
+                <button
+                  onClick={() => convertQuotationToInvoice(viewQuotation)}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  Convert to Invoice
+                </button>
+              )}
+              <button
+                onClick={() => window.print()}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Download className="w-4 h-4" />
+                Print / Download
+              </button>
+              <button
+                onClick={() => setViewQuotation(null)}
                 className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
               >
                 Close
