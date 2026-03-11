@@ -9,8 +9,10 @@ interface InventoryItem {
   quantity: number;
   reorderLevel: number;
   unit: string;
+  unitType: "quantity" | "weight"; // New field to distinguish between count and weight
   costPrice: number;
   sellingPrice: number;
+  wholesalePrice: number; // New field for B2B pricing
   supplier: string;
   location: string;
   gstRate: number; // GST rate percentage for this item
@@ -30,8 +32,10 @@ export function Inventory() {
     quantity: 0,
     reorderLevel: 10,
     unit: "pcs",
+    unitType: "quantity",
     costPrice: 0,
     sellingPrice: 0,
+    wholesalePrice: 0,
     supplier: "",
     location: "",
     gstRate: 18, // Default GST rate
@@ -84,8 +88,10 @@ export function Inventory() {
       quantity: 0,
       reorderLevel: 10,
       unit: "pcs",
+      unitType: "quantity",
       costPrice: 0,
       sellingPrice: 0,
+      wholesalePrice: 0,
       supplier: "",
       location: "",
       gstRate: 18, // Default GST rate
@@ -199,8 +205,8 @@ export function Inventory() {
                       </div>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-sm text-right">${item.costPrice.toFixed(2)}</td>
-                  <td className="px-6 py-4 text-sm text-right">${item.sellingPrice.toFixed(2)}</td>
+                  <td className="px-6 py-4 text-sm text-right">₹{item.costPrice.toFixed(2)}</td>
+                  <td className="px-6 py-4 text-sm text-right">₹{item.sellingPrice.toFixed(2)}</td>
                   <td className="px-6 py-4">
                     <span
                       className={`inline-block px-2 py-1 text-xs rounded ${
@@ -300,11 +306,30 @@ export function Inventory() {
                   <label className="block text-sm mb-2">Quantity *</label>
                   <input
                     type="number"
+                    step="0.01"
                     required
                     value={formData.quantity}
                     onChange={(e) => setFormData({ ...formData, quantity: Number(e.target.value) })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm mb-2">Unit Type *</label>
+                  <select
+                    value={formData.unitType}
+                    onChange={(e) => {
+                      const unitType = e.target.value as "quantity" | "weight";
+                      setFormData({ 
+                        ...formData, 
+                        unitType,
+                        unit: unitType === "weight" ? "kg" : "pcs"
+                      });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="quantity">Quantity (Pieces)</option>
+                    <option value="weight">Weight</option>
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm mb-2">Unit *</label>
@@ -313,29 +338,43 @@ export function Inventory() {
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option>pcs</option>
-                    <option>kg</option>
-                    <option>lbs</option>
-                    <option>box</option>
-                    <option>carton</option>
-                    <option>dozen</option>
+                    {formData.unitType === "weight" ? (
+                      <>
+                        <option value="kg">Kilogram (kg)</option>
+                        <option value="g">Gram (g)</option>
+                        <option value="lbs">Pounds (lbs)</option>
+                        <option value="oz">Ounce (oz)</option>
+                        <option value="ton">Ton</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="pcs">Pieces (pcs)</option>
+                        <option value="box">Box</option>
+                        <option value="carton">Carton</option>
+                        <option value="dozen">Dozen</option>
+                        <option value="pack">Pack</option>
+                        <option value="unit">Unit</option>
+                      </>
+                    )}
                   </select>
-                </div>
-                <div>
-                  <label className="block text-sm mb-2">Reorder Level *</label>
-                  <input
-                    type="number"
-                    required
-                    value={formData.reorderLevel}
-                    onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm mb-2">Reorder Level *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={formData.reorderLevel}
+                  onChange={(e) => setFormData({ ...formData, reorderLevel: Number(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm mb-2">Cost Price *</label>
+                  <label className="block text-sm mb-2">Cost Price (per {formData.unit}) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -346,7 +385,7 @@ export function Inventory() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm mb-2">Selling Price *</label>
+                  <label className="block text-sm mb-2">Retail Price (per {formData.unit}) *</label>
                   <input
                     type="number"
                     step="0.01"
@@ -354,6 +393,18 @@ export function Inventory() {
                     value={formData.sellingPrice}
                     onChange={(e) => setFormData({ ...formData, sellingPrice: Number(e.target.value) })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-2">Wholesale Price (per {formData.unit}) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={formData.wholesalePrice}
+                    onChange={(e) => setFormData({ ...formData, wholesalePrice: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Price for distributors/shops"
                   />
                 </div>
               </div>

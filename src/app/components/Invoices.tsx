@@ -8,6 +8,9 @@ interface InventoryItem {
   category: string;
   quantity: number;
   sellingPrice: number;
+  wholesalePrice: number;
+  unit: string;
+  unitType: "quantity" | "weight";
   gstRate: number;
 }
 
@@ -16,6 +19,7 @@ interface InvoiceItem {
   itemName: string;
   sku: string;
   quantity: number;
+  unit: string;
   price: number;
   gstRate: number;
   gstAmount: number;
@@ -30,6 +34,7 @@ interface Invoice {
   customerEmail: string;
   customerPhone: string;
   customerAddress: string;
+  customerType: "retail" | "wholesale";
   items: InvoiceItem[];
   subtotal: number;
   totalGst: number;
@@ -47,6 +52,7 @@ interface Quotation {
   customerEmail: string;
   customerPhone: string;
   customerAddress: string;
+  customerType: "retail" | "wholesale";
   items: InvoiceItem[];
   subtotal: number;
   totalGst: number;
@@ -72,6 +78,7 @@ export function Invoices() {
     customerEmail: "",
     customerPhone: "",
     customerAddress: "",
+    customerType: "retail" as "retail" | "wholesale",
     date: new Date().toISOString().split("T")[0],
     validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     paymentMethod: "cash",
@@ -137,6 +144,7 @@ export function Invoices() {
         itemName: item.name,
         sku: item.sku,
         quantity,
+        unit: item.unit,
         price: item.sellingPrice,
         gstRate: item.gstRate,
         gstAmount,
@@ -197,6 +205,7 @@ export function Invoices() {
         customerEmail: formData.customerEmail,
         customerPhone: formData.customerPhone,
         customerAddress: formData.customerAddress,
+        customerType: formData.customerType,
         items: invoiceItems,
         subtotal,
         totalGst,
@@ -215,6 +224,7 @@ export function Invoices() {
         customerEmail: formData.customerEmail,
         customerPhone: formData.customerPhone,
         customerAddress: formData.customerAddress,
+        customerType: formData.customerType,
         items: invoiceItems,
         subtotal,
         totalGst,
@@ -234,6 +244,7 @@ export function Invoices() {
       customerEmail: "",
       customerPhone: "",
       customerAddress: "",
+      customerType: "retail" as "retail" | "wholesale",
       date: new Date().toISOString().split("T")[0],
       validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
       paymentMethod: "cash",
@@ -285,6 +296,7 @@ export function Invoices() {
       customerEmail: quotation.customerEmail,
       customerPhone: quotation.customerPhone,
       customerAddress: quotation.customerAddress,
+      customerType: "retail",
       items: quotation.items,
       subtotal: quotation.subtotal,
       totalGst: quotation.totalGst,
@@ -416,13 +428,13 @@ export function Invoices() {
                     </td>
                     <td className="px-6 py-4 text-sm">{invoice.customerName}</td>
                     <td className="px-6 py-4 text-sm text-right">
-                      ${invoice.subtotal.toFixed(2)}
+                      ₹{invoice.subtotal.toFixed(2)}
                     </td>
                     <td className="px-6 py-4 text-sm text-right text-orange-600">
-                      ${invoice.totalGst.toFixed(2)}
+                      ₹{invoice.totalGst.toFixed(2)}
                     </td>
                     <td className="px-6 py-4 text-sm text-right">
-                      ${invoice.grandTotal.toFixed(2)}
+                      ₹{invoice.grandTotal.toFixed(2)}
                     </td>
                     <td className="px-6 py-4">
                       <select
@@ -498,7 +510,7 @@ export function Invoices() {
                     </td>
                     <td className="px-6 py-4 text-sm">{quotation.customerName}</td>
                     <td className="px-6 py-4 text-sm text-right">
-                      ${quotation.grandTotal.toFixed(2)}
+                      ₹{quotation.grandTotal.toFixed(2)}
                     </td>
                     <td className="px-6 py-4">
                       <select
@@ -676,7 +688,7 @@ export function Invoices() {
                     <option value="">-- Select an item --</option>
                     {inventory.map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.name} - ${item.sellingPrice} (GST: {item.gstRate}%)
+                        {item.name} - ₹{item.sellingPrice} (GST: {item.gstRate}%)
                       </option>
                     ))}
                   </select>
@@ -728,7 +740,7 @@ export function Invoices() {
                                 <div>{item.itemName}</div>
                                 <div className="text-xs text-gray-500">{item.sku}</div>
                               </td>
-                              <td className="px-4 py-2 text-sm text-right">${item.price.toFixed(2)}</td>
+                              <td className="px-4 py-2 text-sm text-right">₹{item.price.toFixed(2)}</td>
                               <td className="px-4 py-2 text-sm text-right">
                                 <input
                                   type="number"
@@ -740,10 +752,10 @@ export function Invoices() {
                               </td>
                               <td className="px-4 py-2 text-sm text-right">{item.gstRate}%</td>
                               <td className="px-4 py-2 text-sm text-right text-orange-600">
-                                ${item.gstAmount.toFixed(2)}
+                                ₹{item.gstAmount.toFixed(2)}
                               </td>
                               <td className="px-4 py-2 text-sm text-right">
-                                ${item.total.toFixed(2)}
+                                ₹{item.total.toFixed(2)}
                               </td>
                               <td className="px-4 py-2 text-center">
                                 <button
@@ -767,15 +779,15 @@ export function Invoices() {
                   <div className="bg-gray-50 p-4 rounded-lg">
                     <div className="flex justify-between mb-2">
                       <span className="text-gray-600">Subtotal:</span>
-                      <span>${subtotal.toFixed(2)}</span>
+                      <span>₹{subtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between mb-2 text-orange-600">
                       <span>Total GST:</span>
-                      <span>${totalGst.toFixed(2)}</span>
+                      <span>₹{totalGst.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-lg border-t pt-2">
                       <span>Grand Total:</span>
-                      <span>${grandTotal.toFixed(2)}</span>
+                      <span>₹{grandTotal.toFixed(2)}</span>
                     </div>
                   </div>
                 )}

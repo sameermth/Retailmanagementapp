@@ -184,12 +184,12 @@ export function Customers() {
             <div className="mt-4 pt-4 border-t border-gray-200 text-sm">
               <div className="flex justify-between mb-1">
                 <span className="text-gray-600">Credit Limit:</span>
-                <span>${customer.creditLimit.toLocaleString()}</span>
+                <span>₹{customer.creditLimit.toLocaleString()}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Outstanding:</span>
                 <span className={customer.outstandingBalance > 0 ? "text-red-600" : ""}>
-                  ${customer.outstandingBalance.toLocaleString()}
+                  ₹{customer.outstandingBalance.toLocaleString()}
                 </span>
               </div>
             </div>
