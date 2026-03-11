@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Plus, Search, Eye, Trash2, Download, FileText, ArrowRight } from "lucide-react";
 
 interface InventoryItem {
@@ -26,9 +26,8 @@ interface InvoiceItem {
   total: number;
 }
 
-interface Invoice {
+interface InvoiceParent {
   id: string;
-  invoiceNumber: string;
   date: string;
   customerName: string;
   customerEmail: string;
@@ -39,24 +38,17 @@ interface Invoice {
   subtotal: number;
   totalGst: number;
   grandTotal: number;
+}
+
+interface Invoice extends InvoiceParent{
+  invoiceNumber: string;
   status: "paid" | "unpaid" | "cancelled";
   paymentMethod?: string;
 }
 
-interface Quotation {
-  id: string;
+interface Quotation extends InvoiceParent{
   quotationNumber: string;
-  date: string;
   validUntil: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
-  customerAddress: string;
-  customerType: "retail" | "wholesale";
-  items: InvoiceItem[];
-  subtotal: number;
-  totalGst: number;
-  grandTotal: number;
   status: "pending" | "accepted" | "rejected" | "converted";
   notes?: string;
 }
@@ -80,7 +72,7 @@ export function Invoices() {
     customerAddress: "",
     customerType: "retail" as "retail" | "wholesale",
     date: new Date().toISOString().split("T")[0],
-    validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+    validUntil: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     paymentMethod: "cash",
     notes: "",
   });
@@ -230,7 +222,7 @@ export function Invoices() {
         totalGst,
         grandTotal,
         status: "pending",
-        notes: formData.notes,
+        notes: formData.notes
       };
       saveQuotationsToLocalStorage([...quotations, newQuotation]);
     }
