@@ -179,3 +179,21 @@
     line-height: 1.5;
   }
 }
+
+@layer components {
+  .crm-shell {
+    @apply mx-auto w-full max-w-[1560px];
+  }
+
+  .crm-field {
+    @apply h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+  }
+
+  .crm-select {
+    @apply h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+  }
+
+  .crm-textarea {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200;
+  }
+}

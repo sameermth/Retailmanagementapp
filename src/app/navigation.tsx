@@ -1,0 +1,670 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  BarChart3,
+  BellRing,
+  BookOpen,
+  Building2,
+  CirclePlus,
+  CreditCard,
+  FileBarChart,
+  FileDown,
+  FileText,
+  FolderKanban,
+  GitBranch,
+  HandCoins,
+  LayoutDashboard,
+  Package,
+  PackageSearch,
+  ReceiptText,
+  Repeat,
+  ScanLine,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  ShoppingBasket,
+  ShoppingCart,
+  Truck,
+  UserCircle2,
+  Users,
+  Wallet,
+  Warehouse,
+} from "lucide-react";
+import type { FeatureKey } from "./features";
+
+export interface NavItem {
+  path: string;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  eyebrow: string;
+  title: string;
+  requiredFeature?: FeatureKey | null;
+  requiredPermissions?: string[];
+}
+
+export interface NavGroup {
+  id: string;
+  label: string;
+  items: NavItem[];
+}
+
+export interface SidebarSection {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  path: string;
+  requiredFeature?: FeatureKey | null;
+  requiredPermissions?: string[];
+  children?: NavItem[];
+}
+
+function item(config: NavItem): NavItem {
+  return config;
+}
+
+export const navGroups: NavGroup[] = [
+  {
+    id: "overview",
+    label: "Overview",
+    items: [
+      item({
+        path: "/dashboard",
+        label: "Dashboard",
+        description: "Live business summary, stock alerts, dues, and GST status from the backend.",
+        icon: LayoutDashboard,
+        eyebrow: "Overview",
+        title: "Dashboard",
+        requiredFeature: "dashboard.view",
+        requiredPermissions: ["dashboard.view", "erp.dashboard.view", "dashboard.read"],
+      }),
+    ],
+  },
+  {
+    id: "sales",
+    label: "Sales",
+    items: [
+      item({
+        path: "/sales/quotes",
+        label: "Quotes",
+        description: "Create and review sales estimates and quotations before conversion.",
+        icon: FileText,
+        eyebrow: "Sales",
+        title: "Sales Quotes",
+        requiredFeature: "sales.quotes",
+        requiredPermissions: ["sales.view", "sales.quotes.read", "erp.sales.quotes.read", "sales.quote.read"],
+      }),
+      item({
+        path: "/sales/quotes/new",
+        label: "New Quote",
+        description: "Create a new sales estimate or quotation.",
+        icon: CirclePlus,
+        eyebrow: "Sales",
+        title: "New Sales Quote",
+        requiredFeature: "sales.quotes",
+        requiredPermissions: ["sales.create", "sales.quotes.create", "erp.sales.quotes.create", "sales.quote.create"],
+      }),
+      item({
+        path: "/sales/orders",
+        label: "Sales Orders",
+        description: "Track confirmed sales orders before invoicing.",
+        icon: ScrollText,
+        eyebrow: "Sales",
+        title: "Sales Orders",
+        requiredFeature: "sales.orders",
+        requiredPermissions: ["sales.view", "sales.orders.read", "erp.sales.orders.read", "sales.order.read"],
+      }),
+      item({
+        path: "/sales/invoices",
+        label: "Invoices",
+        description: "Tax invoices, totals, status, and collection progress.",
+        icon: ReceiptText,
+        eyebrow: "Sales",
+        title: "Sales Invoices",
+        requiredFeature: "sales.invoices",
+        requiredPermissions: ["sales.view", "sales.invoices.read", "erp.sales.invoices.read", "sales.invoice.read"],
+      }),
+      item({
+        path: "/sales/invoices/new",
+        label: "New Invoice",
+        description: "Create a new sales invoice directly from the ERP invoice flow.",
+        icon: CirclePlus,
+        eyebrow: "Sales",
+        title: "New Sales Invoice",
+        requiredFeature: "sales.invoices",
+        requiredPermissions: ["sales.create", "sales.invoices.create", "erp.sales.invoices.create", "sales.invoice.create"],
+      }),
+      item({
+        path: "/sales/receipts",
+        label: "Customer Receipts",
+        description: "Record and allocate customer receipts against invoices.",
+        icon: HandCoins,
+        eyebrow: "Sales",
+        title: "Customer Receipts",
+        requiredFeature: "sales.receipts",
+        requiredPermissions: ["sales.view", "payment.receive", "sales.receipts.read", "erp.sales.receipts.read", "sales.receipt.read"],
+      }),
+      item({
+        path: "/sales/returns",
+        label: "Sales Returns",
+        description: "Handle sales returns and inspection-driven posting.",
+        icon: Truck,
+        eyebrow: "Sales",
+        title: "Sales Returns",
+        requiredFeature: "sales.returns",
+        requiredPermissions: ["sales.view", "sales.return", "sales.returns.read", "erp.returns.sales.read", "sales.return.read"],
+      }),
+      item({
+        path: "/sales/recurring-invoices",
+        label: "Recurring Invoices",
+        description: "Manage recurring invoice templates and billing runs.",
+        icon: Repeat,
+        eyebrow: "Sales",
+        title: "Recurring Invoices",
+        requiredFeature: "sales.recurring-invoices",
+        requiredPermissions: [
+          "sales.recurring.read",
+          "erp.sales.recurring-invoices.read",
+          "sales.recurring-invoices.read",
+        ],
+      }),
+    ],
+  },
+  {
+    id: "purchases",
+    label: "Purchases",
+    items: [
+      item({
+        path: "/purchases/orders",
+        label: "Purchase Orders",
+        description: "Create and track supplier purchase orders.",
+        icon: ShoppingBasket,
+        eyebrow: "Purchases",
+        title: "Purchase Orders",
+        requiredFeature: "purchases.orders",
+        requiredPermissions: ["purchase.view", "purchases.orders.read", "erp.purchases.orders.read", "purchase.order.read"],
+      }),
+      item({
+        path: "/purchases/receipts",
+        label: "Purchase Receipts",
+        description: "Receive supplier goods with tax, serial, and batch details.",
+        icon: ReceiptText,
+        eyebrow: "Purchases",
+        title: "Purchase Receipts",
+        requiredFeature: "purchases.receipts",
+        requiredPermissions: [
+          "purchase.view",
+          "inventory.receive",
+          "purchases.receipts.read",
+          "erp.purchases.receipts.read",
+          "purchase.receipt.read",
+        ],
+      }),
+      item({
+        path: "/purchases/supplier-payments",
+        label: "Supplier Payments",
+        description: "Post and allocate supplier payments.",
+        icon: CreditCard,
+        eyebrow: "Purchases",
+        title: "Supplier Payments",
+        requiredFeature: "purchases.payments",
+        requiredPermissions: [
+          "purchase.view",
+          "payment.pay",
+          "purchases.payments.read",
+          "erp.purchases.supplier-payments.read",
+          "supplier.payment.read",
+        ],
+      }),
+      item({
+        path: "/purchases/returns",
+        label: "Purchase Returns",
+        description: "Create purchase returns against received supplier stock.",
+        icon: Truck,
+        eyebrow: "Purchases",
+        title: "Purchase Returns",
+        requiredFeature: "purchases.returns",
+        requiredPermissions: [
+          "purchase.view",
+          "purchase.return",
+          "purchases.returns.read",
+          "erp.returns.purchases.read",
+          "purchase.return.read",
+        ],
+      }),
+      item({
+        path: "/purchases/expenses",
+        label: "Expenses",
+        description: "Track operating expenses and payment status.",
+        icon: Wallet,
+        eyebrow: "Purchases",
+        title: "Expenses",
+        requiredFeature: "purchases.expenses",
+        requiredPermissions: ["expenses.read", "erp.expenses.read", "purchases.expenses.read"],
+      }),
+    ],
+  },
+  {
+    id: "inventory",
+    label: "Inventory",
+    items: [
+      item({
+        path: "/inventory/items",
+        label: "Store Products",
+        description: "Store product catalog aligned to ERP product and inventory configuration.",
+        icon: Package,
+        eyebrow: "Inventory",
+        title: "Store Products",
+        requiredFeature: "inventory.items",
+        requiredPermissions: ["catalog.view", "inventory.items.read", "erp.products.read", "inventory.products.read"],
+      }),
+      item({
+        path: "/inventory/items/new",
+        label: "New Product",
+        description: "Create a store product and optional opening stock adjustment.",
+        icon: CirclePlus,
+        eyebrow: "Inventory",
+        title: "New Store Product",
+        requiredFeature: "inventory.items",
+        requiredPermissions: ["catalog.manage", "inventory.items.create", "erp.products.create", "inventory.products.create"],
+      }),
+      item({
+        path: "/inventory/stock-adjustments",
+        label: "Stock Adjustments",
+        description: "Manual ERP stock adjustments by warehouse and product.",
+        icon: PackageSearch,
+        eyebrow: "Inventory",
+        title: "Stock Adjustments",
+        requiredFeature: "inventory.stock-adjustments",
+        requiredPermissions: [
+          "inventory.adjust",
+          "inventory.adjustments.read",
+          "erp.inventory.adjustments.read",
+          "inventory.stock-adjustments.read",
+        ],
+      }),
+      item({
+        path: "/inventory/stock-transfers",
+        label: "Stock Transfers",
+        description: "Transfer stock between warehouses.",
+        icon: ShoppingCart,
+        eyebrow: "Inventory",
+        title: "Stock Transfers",
+        requiredFeature: "inventory.stock-transfers",
+        requiredPermissions: [
+          "inventory.transfer",
+          "inventory.transfers.read",
+          "erp.inventory.transfers.read",
+          "inventory.stock-transfers.read",
+        ],
+      }),
+      item({
+        path: "/inventory/warehouses",
+        label: "Warehouses",
+        description: "Inspect warehouse-level stock balances and movement context.",
+        icon: Warehouse,
+        eyebrow: "Inventory",
+        title: "Warehouses",
+        requiredFeature: "inventory.warehouses",
+        requiredPermissions: ["inventory.warehouses.read", "erp.warehouses.read", "warehouse.read"],
+      }),
+      item({
+        path: "/inventory/scan",
+        label: "Scan & Track",
+        description: "Resolve barcode, serial, and batch scan queries.",
+        icon: ScanLine,
+        eyebrow: "Inventory",
+        title: "Scan and Track",
+        requiredFeature: "inventory.scan",
+        requiredPermissions: ["inventory.scan.read", "erp.products.scan", "inventory.tracking.read"],
+      }),
+    ],
+  },
+  {
+    id: "banking",
+    label: "Banking",
+    items: [
+      item({
+        path: "/banking/overview",
+        label: "Overview",
+        description: "Cash and bank overview, movement summaries, and reconciliation health.",
+        icon: Building2,
+        eyebrow: "Banking",
+        title: "Banking Overview",
+        requiredFeature: "banking.overview",
+        requiredPermissions: ["banking.overview.read", "erp.finance.cash-bank.read", "banking.read"],
+      }),
+      item({
+        path: "/banking/accounts",
+        label: "Accounts",
+        description: "Bank and cash accounts used by ERP finance flows.",
+        icon: Building2,
+        eyebrow: "Banking",
+        title: "Bank Accounts",
+        requiredFeature: "banking.accounts",
+        requiredPermissions: ["banking.accounts.read", "erp.finance.accounts.read", "account.read"],
+      }),
+      item({
+        path: "/banking/import-statement",
+        label: "Import Statements",
+        description: "Import bank statement lines for reconciliation.",
+        icon: FileDown,
+        eyebrow: "Banking",
+        title: "Import Bank Statements",
+        requiredFeature: "banking.transactions",
+        requiredPermissions: [
+          "banking.statements.import",
+          "erp.finance.bank-reconciliation.import",
+          "bank.statement.import",
+        ],
+      }),
+      item({
+        path: "/banking/reconciliation",
+        label: "Reconciliation",
+        description: "Match imported bank entries to ERP ledger activity.",
+        icon: CreditCard,
+        eyebrow: "Banking",
+        title: "Bank Reconciliation",
+        requiredFeature: "banking.reconciliation",
+        requiredPermissions: [
+          "banking.reconciliation.read",
+          "erp.finance.bank-reconciliation.read",
+          "bank.reconciliation.read",
+        ],
+      }),
+    ],
+  },
+  {
+    id: "accountant",
+    label: "Accountant",
+    items: [
+      item({
+        path: "/accountant/chart-of-accounts",
+        label: "Chart of Accounts",
+        description: "Review the ERP chart of accounts and account structure.",
+        icon: BookOpen,
+        eyebrow: "Accountant",
+        title: "Chart of Accounts",
+        requiredPermissions: ["finance.accounts.read", "erp.finance.accounts.read", "account.read"],
+      }),
+      item({
+        path: "/accountant/manual-journals",
+        label: "Vouchers",
+        description: "Create and review finance vouchers and manual entries.",
+        icon: FileBarChart,
+        eyebrow: "Accountant",
+        title: "Vouchers",
+        requiredPermissions: ["finance.vouchers.read", "erp.finance.vouchers.read", "voucher.read"],
+      }),
+    ],
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    items: [
+      item({
+        path: "/reports/business",
+        label: "Business Reports",
+        description: "Business KPIs, profitability, stock, dues, and activity views.",
+        icon: BarChart3,
+        eyebrow: "Reports",
+        title: "Business Reports",
+        requiredFeature: "reports.business",
+        requiredPermissions: ["reports.business.read", "erp.reports.business.read", "report.read"],
+      }),
+      item({
+        path: "/reports/gst",
+        label: "GST Reports",
+        description: "Tax registrations, threshold status, and GST reporting.",
+        icon: ShieldCheck,
+        eyebrow: "Reports",
+        title: "GST Reports",
+        requiredFeature: "reports.gst",
+        requiredPermissions: ["reports.gst.read", "erp.tax.read", "tax.read"],
+      }),
+    ],
+  },
+  {
+    id: "people",
+    label: "People",
+    items: [
+      item({
+        path: "/people/customers",
+        label: "Customers",
+        description: "Customer master data and commercial terms.",
+        icon: Users,
+        eyebrow: "People",
+        title: "Customers",
+        requiredFeature: "people.customers",
+        requiredPermissions: ["sales.view", "customers.read", "erp.customers.read", "customer.read"],
+      }),
+      item({
+        path: "/people/customers/new",
+        label: "New Customer",
+        description: "Create a customer aligned to the ERP customer contract.",
+        icon: CirclePlus,
+        eyebrow: "People",
+        title: "New Customer",
+        requiredFeature: "people.customers",
+        requiredPermissions: ["sales.create", "customers.create", "erp.customers.create", "customer.create"],
+      }),
+      item({
+        path: "/people/vendors",
+        label: "Suppliers",
+        description: "Supplier records, sourcing data, and supplier terms.",
+        icon: UserCircle2,
+        eyebrow: "People",
+        title: "Suppliers",
+        requiredFeature: "people.vendors",
+        requiredPermissions: ["purchase.view", "suppliers.read", "erp.suppliers.read", "supplier.read"],
+      }),
+      item({
+        path: "/people/vendors/new",
+        label: "New Supplier",
+        description: "Create a supplier aligned to the ERP supplier contract.",
+        icon: CirclePlus,
+        eyebrow: "People",
+        title: "New Supplier",
+        requiredFeature: "people.vendors",
+        requiredPermissions: ["purchase.create", "suppliers.create", "erp.suppliers.create", "supplier.create"],
+      }),
+    ],
+  },
+  {
+    id: "documents",
+    label: "Documents",
+    items: [
+      item({
+        path: "/documents/files",
+        label: "Documents",
+        description: "Attachments, generated files, and operational exports.",
+        icon: FolderKanban,
+        eyebrow: "Documents",
+        title: "Documents",
+      }),
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    items: [
+      item({
+        path: "/system/automation",
+        label: "Automation",
+        description: "Workflow triggers, report schedules, and notification automation.",
+        icon: BellRing,
+        eyebrow: "System",
+        title: "Automation",
+        requiredFeature: "settings.automation",
+        requiredPermissions: ["automation.read", "erp.workflow.read", "report-schedules.read"],
+      }),
+      item({
+        path: "/system/settings",
+        label: "Organization",
+        description: "Current organization, subscription, and ERP session context.",
+        icon: Settings,
+        eyebrow: "System",
+        title: "Organization Settings",
+        requiredFeature: "settings.organization",
+        requiredPermissions: ["settings.organization.read", "organization.read", "erp.organizations.read"],
+      }),
+      item({
+        path: "/system/settings/branches",
+        label: "Branches",
+        description: "Branch context and access visibility from the active membership.",
+        icon: GitBranch,
+        eyebrow: "System",
+        title: "Branches",
+        requiredFeature: "settings.branches",
+        requiredPermissions: ["settings.branches.read", "branch.read", "erp.branches.read"],
+      }),
+      item({
+        path: "/system/settings/employees",
+        label: "Employees",
+        description: "User and employee access visibility.",
+        icon: Users,
+        eyebrow: "System",
+        title: "Employees",
+        requiredFeature: "settings.employees",
+        requiredPermissions: ["settings.employees.read", "users.read", "employee.read"],
+      }),
+      item({
+        path: "/system/settings/roles",
+        label: "Roles & Permissions",
+        description: "Role matrix and permission matrix visibility.",
+        icon: ShieldCheck,
+        eyebrow: "System",
+        title: "Roles and Permissions",
+        requiredFeature: "settings.roles",
+        requiredPermissions: ["settings.roles.read", "roles.read", "permissions.read"],
+      }),
+    ],
+  },
+];
+
+export const navItems = navGroups.flatMap((group) => group.items);
+
+export function findNavItem(pathname: string) {
+  return navItems.find((item) => pathname === item.path);
+}
+
+export function requireNavItem(path: string) {
+  const entry = navItems.find((item) => item.path === path);
+
+  if (!entry) {
+    throw new Error(`Navigation item not found for path: ${path}`);
+  }
+
+  return entry;
+}
+
+export const sidebarSections: SidebarSection[] = [
+  {
+    id: "home",
+    label: "Home",
+    icon: LayoutDashboard,
+    path: "/dashboard",
+    requiredFeature: "dashboard.view",
+    requiredPermissions: ["dashboard.view", "erp.dashboard.view", "dashboard.read"],
+  },
+  {
+    id: "sales",
+    label: "Sales",
+    icon: ReceiptText,
+    path: "/sales/quotes",
+    requiredFeature: "sales.quotes",
+    children: [
+      requireNavItem("/sales/quotes"),
+      requireNavItem("/sales/orders"),
+      requireNavItem("/sales/invoices"),
+      requireNavItem("/sales/receipts"),
+      requireNavItem("/sales/returns"),
+      requireNavItem("/sales/recurring-invoices"),
+    ],
+  },
+  {
+    id: "purchases",
+    label: "Purchases",
+    icon: ShoppingBasket,
+    path: "/purchases/orders",
+    requiredFeature: "purchases.orders",
+    children: [
+      requireNavItem("/purchases/orders"),
+      requireNavItem("/purchases/receipts"),
+      requireNavItem("/purchases/supplier-payments"),
+      requireNavItem("/purchases/returns"),
+      requireNavItem("/purchases/expenses"),
+    ],
+  },
+  {
+    id: "inventory",
+    label: "Inventory",
+    icon: Package,
+    path: "/inventory/items",
+    requiredFeature: "inventory.items",
+    children: [
+      requireNavItem("/inventory/items"),
+      requireNavItem("/inventory/stock-adjustments"),
+      requireNavItem("/inventory/stock-transfers"),
+      requireNavItem("/inventory/warehouses"),
+      requireNavItem("/inventory/scan"),
+    ],
+  },
+  {
+    id: "banking",
+    label: "Banking",
+    icon: Building2,
+    path: "/banking/overview",
+    requiredFeature: "banking.overview",
+    children: [
+      requireNavItem("/banking/overview"),
+      requireNavItem("/banking/accounts"),
+      requireNavItem("/banking/import-statement"),
+      requireNavItem("/banking/reconciliation"),
+    ],
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    icon: BarChart3,
+    path: "/reports/business",
+    requiredFeature: "reports.business",
+    children: [requireNavItem("/reports/business"), requireNavItem("/reports/gst")],
+  },
+  {
+    id: "people",
+    label: "People",
+    icon: Users,
+    path: "/people/customers",
+    requiredFeature: "people.customers",
+    children: [
+      requireNavItem("/people/customers"),
+      requireNavItem("/people/vendors"),
+      requireNavItem("/people/customers/new"),
+      requireNavItem("/people/vendors/new"),
+    ],
+  },
+  {
+    id: "accountant",
+    label: "Accountant",
+    icon: BookOpen,
+    path: "/accountant/chart-of-accounts",
+    children: [
+      requireNavItem("/accountant/chart-of-accounts"),
+      requireNavItem("/accountant/manual-journals"),
+    ],
+  },
+  {
+    id: "settings",
+    label: "System",
+    icon: Settings,
+    path: "/system/settings",
+    requiredFeature: "settings.organization",
+    children: [
+      requireNavItem("/system/automation"),
+      requireNavItem("/system/settings"),
+      requireNavItem("/system/settings/branches"),
+      requireNavItem("/system/settings/employees"),
+      requireNavItem("/system/settings/roles"),
+    ],
+  },
+];

@@ -1,78 +1,327 @@
-import { Outlet, Link, useLocation } from "react-router";
+import { Suspense } from "react";
+import { Link, Outlet, useLocation } from "react-router";
 import {
-  LayoutDashboard,
-  Users,
-  UserCircle,
-  Truck,
-  Package,
-  FileText,
-  Receipt,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../auth";
+import { findNavItem, sidebarSections, type NavItem, type SidebarSection } from "../navigation";
+
+const SIDEBAR_STORAGE_KEY = "ui.sidebar-collapsed";
+
+function isItemAllowed(
+  item: Pick<NavItem, "requiredFeature" | "requiredPermissions">,
+  canAccess: (feature: NavItem["requiredFeature"]) => boolean,
+  hasAnyPermission: (permissions: string[] | null | undefined) => boolean,
+) {
+  return canAccess(item.requiredFeature ?? null) && hasAnyPermission(item.requiredPermissions);
+}
+
+function getVisibleSections(
+  sections: SidebarSection[],
+  canAccess: (feature: NavItem["requiredFeature"]) => boolean,
+  hasAnyPermission: (permissions: string[] | null | undefined) => boolean,
+) {
+  return sections
+    .map((section) => {
+      const children = section.children?.filter((item) => isItemAllowed(item, canAccess, hasAnyPermission));
+      const sectionAllowed =
+        canAccess(section.requiredFeature ?? null) && hasAnyPermission(section.requiredPermissions);
+
+      if (!sectionAllowed && (!children || children.length === 0)) {
+        return null;
+      }
+
+      return {
+        ...section,
+        path: sectionAllowed ? section.path : children?.[0]?.path ?? section.path,
+        children,
+      };
+    })
+    .filter((section): section is SidebarSection => Boolean(section));
+}
+
+function RouteLoadingFallback() {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-sm text-slate-500 shadow-sm">
+      Loading module...
+    </div>
+  );
+}
 
 export function Root() {
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [openSectionId, setOpenSectionId] = useState<string | null>(null);
+  const { user, logout, capabilities, canAccess, hasAnyPermission } = useAuth();
+  const visibleSections = useMemo(
+    () => getVisibleSections(sidebarSections, canAccess, hasAnyPermission),
+    [canAccess, hasAnyPermission],
+  );
+  const currentNavItem = findNavItem(location.pathname);
 
-  const navItems = [
-    { path: "/", label: "Dashboard", icon: LayoutDashboard },
-    { path: "/suppliers", label: "Suppliers", icon: Truck },
-    { path: "/customers", label: "Customers", icon: Users },
-    { path: "/distributors", label: "Distributors", icon: UserCircle },
-    { path: "/inventory", label: "Inventory", icon: Package },
-    { path: "/invoices", label: "Invoices", icon: Receipt },
-    { path: "/taxation", label: "Taxation", icon: FileText },
-  ];
+  useEffect(() => {
+    const savedValue = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    setSidebarCollapsed(savedValue === "true");
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const activeSection = visibleSections.find((section) =>
+      section.children?.some((item) => item.path === location.pathname) || section.path === location.pathname,
+    );
+
+    if (activeSection) {
+      setOpenSectionId(activeSection.id);
+    }
+  }, [location.pathname, visibleSections]);
+
+  function toggleSection(sectionId: string) {
+    setOpenSectionId((current) => (current === sectionId ? null : sectionId));
+  }
+
+  const subscriptionBadge =
+    capabilities.subscriptionStatus === "ACTIVE" || capabilities.subscriptionStatus === "TRIAL"
+      ? "bg-emerald-50 text-emerald-700"
+      : "bg-amber-50 text-amber-700";
 
   return (
-    <div className="flex h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside
-        className={`${
-          sidebarOpen ? "w-64" : "w-20"
-        } bg-white border-r border-gray-200 transition-all duration-300`}
-      >
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          {sidebarOpen && <h1 className="font-semibold text-lg">Retail Manager</h1>}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
+    <div className="min-h-screen bg-slate-50">
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
+        <div className="crm-shell flex items-center gap-4 px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              className="rounded-xl border border-slate-200 p-2 text-slate-600 lg:hidden"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <button
+              onClick={() => setSidebarCollapsed((value) => !value)}
+              className="hidden rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100 lg:inline-flex"
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpen className="h-5 w-5" />
+              ) : (
+                <PanelLeftClose className="h-5 w-5" />
+              )}
+            </button>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Retail Management</div>
+              <div className="text-xs text-slate-500">Backend-driven ERP workspace</div>
+            </div>
+          </div>
+
+          <div className="ml-auto flex items-center gap-3">
+            <div className={`hidden rounded-full px-3 py-1 text-xs font-semibold sm:block ${subscriptionBadge}`}>
+              {capabilities.plan} · {capabilities.subscriptionStatus}
+            </div>
+            {user && (
+              <div className="hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-right sm:block">
+                <div className="text-sm font-medium text-slate-900">
+                  {user.organizationName || user.username}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {user.defaultBranchId ? `Branch ${user.defaultBranchId} · ` : ""}
+                  {user.email}
+                </div>
+              </div>
+            )}
+            <button
+              onClick={() => {
+                void logout();
+              }}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Logout</span>
+            </button>
+          </div>
         </div>
 
-        <nav className="p-4 space-y-2">
-          {navItems.map((item) => {
-            const isActive =
-              item.path === "/"
-                ? location.pathname === "/"
-                : location.pathname.startsWith(item.path);
-            const Icon = item.icon;
+        {mobileMenuOpen && (
+          <div className="border-t border-slate-200 px-4 py-3 lg:hidden">
+            <div className="space-y-4">
+              {visibleSections.map((section) => {
+                const Icon = section.icon;
+                const isOpen = openSectionId === section.id;
+                const isActiveSection =
+                  section.path === location.pathname ||
+                  section.children?.some((item) => item.path === location.pathname);
 
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                  isActive
-                    ? "bg-blue-50 text-blue-600"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
+                return (
+                  <div key={section.id}>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={section.path}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-4 py-3 text-sm ${
+                          isActiveSection ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                        <span>{section.label}</span>
+                      </Link>
+                      {section.children && section.children.length > 0 && (
+                        <button
+                          onClick={() => toggleSection(section.id)}
+                          className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-500"
+                        >
+                          <ChevronDown className={`h-4 w-4 transition ${isOpen ? "rotate-180" : ""}`} />
+                        </button>
+                      )}
+                    </div>
+                    {section.children && section.children.length > 0 && isOpen && (
+                      <div className="mt-2 space-y-2 pl-4">
+                        {section.children.map((item) => {
+                          const isActive = location.pathname === item.path;
+
+                          return (
+                            <Link
+                              key={item.path}
+                              to={item.path}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm ${
+                                isActive ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-700"
+                              }`}
+                            >
+                              <item.icon className="h-4 w-4" />
+                              <span>{item.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </header>
+
+      <div
+        className={`crm-shell grid gap-6 px-4 py-6 sm:px-6 lg:px-8 ${
+          sidebarCollapsed
+            ? "lg:grid-cols-[92px_minmax(0,1fr)]"
+            : "lg:grid-cols-[248px_minmax(0,1fr)]"
+        }`}
+      >
+        <aside className="hidden self-start lg:block">
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <div className="mb-4 flex items-center justify-between px-2">
+              {!sidebarCollapsed && (
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Navigation
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600">Modules you can access</div>
+                </div>
+              )}
+              <button
+                onClick={() => setSidebarCollapsed((value) => !value)}
+                className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100"
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
-                <Icon className="w-5 h-5 flex-shrink-0" />
-                {sidebarOpen && <span>{item.label}</span>}
-              </Link>
-            );
-          })}
-        </nav>
-      </aside>
+                {sidebarCollapsed ? (
+                  <ChevronRight className="h-4 w-4" />
+                ) : (
+                  <ChevronLeft className="h-4 w-4" />
+                )}
+              </button>
+            </div>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+            <nav className="space-y-2">
+              {visibleSections.map((section) => {
+                const Icon = section.icon;
+                const isOpen = openSectionId === section.id;
+                const isActiveSection =
+                  section.path === location.pathname ||
+                  section.children?.some((item) => item.path === location.pathname);
+
+                return (
+                  <div key={section.id}>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={section.path}
+                        title={sidebarCollapsed ? section.label : undefined}
+                        className={`flex min-w-0 items-center rounded-2xl px-3 py-3 text-sm transition ${
+                          isActiveSection
+                            ? "bg-slate-900 text-white"
+                            : "text-slate-700 hover:bg-slate-100"
+                        } ${sidebarCollapsed ? "flex-1 justify-center" : "flex-1 gap-3"}`}
+                      >
+                        <Icon className="h-4 w-4 flex-shrink-0" />
+                        {!sidebarCollapsed && <span className="truncate">{section.label}</span>}
+                      </Link>
+                      {!sidebarCollapsed && section.children && section.children.length > 0 && (
+                        <button
+                          onClick={() => toggleSection(section.id)}
+                          className="rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                        >
+                          <ChevronDown className={`h-4 w-4 transition ${isOpen ? "rotate-180" : ""}`} />
+                        </button>
+                      )}
+                    </div>
+
+                    {!sidebarCollapsed && section.children && section.children.length > 0 && isOpen && (
+                      <div className="mt-2 space-y-1 pl-4">
+                        {section.children.map((item) => {
+                          const isActive = location.pathname === item.path;
+
+                          return (
+                            <Link
+                              key={item.path}
+                              to={item.path}
+                              className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition ${
+                                isActive
+                                  ? "bg-blue-50 font-medium text-blue-700"
+                                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                              }`}
+                            >
+                              <item.icon className="h-4 w-4 flex-shrink-0" />
+                              <span className="truncate">{item.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </nav>
+          </div>
+        </aside>
+
+        <main className="min-w-0">
+          {currentNavItem && (
+            <div className="mb-5 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                {currentNavItem.eyebrow}
+              </div>
+              <div className="mt-2 text-lg font-semibold text-slate-950">
+                {currentNavItem.label}
+              </div>
+              <div className="mt-1 text-sm text-slate-600">{currentNavItem.description}</div>
+            </div>
+          )}
+
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <Outlet />
+          </Suspense>
+        </main>
+      </div>
     </div>
   );
 }
