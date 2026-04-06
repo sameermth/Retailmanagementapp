@@ -96,6 +96,7 @@ interface AuthContextValue {
   isLoading: boolean;
   user: AuthUser | null;
   token: string | null;
+  isPlatformAdmin: boolean;
   capabilities: SubscriptionCapabilities;
   canAccess: (feature: FeatureKey | null) => boolean;
   hasPermission: (permission: string | null) => boolean;
@@ -244,6 +245,31 @@ function normalizePermission(value: string) {
   return value.trim().toLowerCase().replace(/[\s:-]+/g, ".");
 }
 
+function isPlatformPermission(permission: string | null | undefined) {
+  if (!permission) {
+    return false;
+  }
+
+  const normalized = normalizePermission(permission);
+  return normalized === "platform.manage" || normalized.startsWith("platform.");
+}
+
+function isPlatformAdminUser(user: AuthUser | null) {
+  if (!user) {
+    return false;
+  }
+
+  const normalizedPermissions = new Set(user.permissions.map(normalizePermission));
+  if (normalizedPermissions.has("platform.manage")) {
+    return true;
+  }
+
+  return user.roles.some((role) => {
+    const normalized = role.replace(/^ROLE_/, "").toUpperCase();
+    return normalized === "PLATFORM_ADMIN" || normalized === "SUPER_ADMIN";
+  });
+}
+
 function hasElevatedRole(user: AuthUser | null) {
   if (!user) {
     return false;
@@ -312,6 +338,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       user: session?.user ?? null,
       token: session?.token ?? null,
+      isPlatformAdmin: isPlatformAdminUser(session?.user ?? null),
       capabilities,
       canAccess(feature) {
         if (!feature) {
@@ -339,6 +366,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return false;
         }
 
+        if (isPlatformPermission(permission)) {
+          return isPlatformAdminUser(session.user);
+        }
+
         if (hasElevatedRole(session.user)) {
           return true;
         }
@@ -358,6 +389,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!session?.user) {
           return false;
+        }
+
+        if (requiredPermissions.some((permission) => isPlatformPermission(permission))) {
+          return requiredPermissions.some((permission) =>
+            isPlatformPermission(permission) ? isPlatformAdminUser(session.user) : false,
+          );
         }
 
         if (hasElevatedRole(session.user)) {

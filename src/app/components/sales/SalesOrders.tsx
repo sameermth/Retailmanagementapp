@@ -3,14 +3,20 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { fetchWarehouses, type WarehouseResponse } from "../inventory/api";
 import {
+  cancelOrder,
   createOrder,
+  fetchOrder,
+  fetchOrderPdf,
   fetchOrders,
   fetchSalesCustomers,
   fetchStoreProductsForSales,
   type SalesCustomerSummary,
+  type SalesOrderDetailResponse,
   type SalesOrderSummaryResponse,
   type StoreProductOption,
 } from "./api";
+import { CustomerQuickCreateDialog } from "./CustomerQuickCreateDialog";
+import { DocumentDetailsDialog, formatDate } from "./DocumentDetailsDialog";
 
 interface OrderLineDraft {
   productId: string;
@@ -33,7 +39,18 @@ export function SalesOrders() {
   const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 10));
   const [remarks, setRemarks] = useState("");
   const [lines, setLines] = useState<OrderLineDraft[]>([{ productId: "", quantity: "1", unitPrice: "" }]);
+  const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<SalesOrderDetailResponse | null>(null);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+  const [orderPdfUrl, setOrderPdfUrl] = useState<string | null>(null);
+  const [isOrderPdfLoading, setIsOrderPdfLoading] = useState(false);
+  const [orderPdfError, setOrderPdfError] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const [cancelSuccess, setCancelSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -49,7 +66,7 @@ export function SalesOrders() {
           fetchOrders(token, user.organizationId),
           fetchSalesCustomers(token, user.organizationId),
           fetchStoreProductsForSales(token, user.organizationId),
-          fetchWarehouses(token),
+          fetchWarehouses(token, user.organizationId, user.defaultBranchId ?? undefined),
         ]);
         setOrders(ordersResponse);
         setCustomers(customersResponse);
@@ -68,6 +85,15 @@ export function SalesOrders() {
     }
     void loadData();
   }, [token, user?.organizationId]);
+
+  useEffect(
+    () => () => {
+      if (orderPdfUrl) {
+        URL.revokeObjectURL(orderPdfUrl);
+      }
+    },
+    [orderPdfUrl],
+  );
 
   function updateLine(index: number, field: keyof OrderLineDraft, value: string) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, [field]: value } : line)));
@@ -129,6 +155,92 @@ export function SalesOrders() {
     }
   }
 
+  async function openDetails(orderId: number) {
+    if (!token) {
+      return;
+    }
+
+    if (orderPdfUrl) {
+      URL.revokeObjectURL(orderPdfUrl);
+      setOrderPdfUrl(null);
+    }
+    setOrderPdfError("");
+    setCancelReason("");
+    setCancelError("");
+    setCancelSuccess("");
+    setSelectedOrderId(orderId);
+    setIsDetailsLoading(true);
+
+    try {
+      setSelectedOrder(await fetchOrder(token, orderId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load sales order details.");
+    } finally {
+      setIsDetailsLoading(false);
+    }
+  }
+
+  async function loadOrderPdf() {
+    if (!token || !selectedOrderId) {
+      return;
+    }
+
+    setIsOrderPdfLoading(true);
+    setOrderPdfError("");
+
+    try {
+      const pdfBlob = await fetchOrderPdf(token, selectedOrderId);
+      if (orderPdfUrl) {
+        URL.revokeObjectURL(orderPdfUrl);
+      }
+      setOrderPdfUrl(URL.createObjectURL(pdfBlob));
+    } catch (err) {
+      setOrderPdfError(err instanceof Error ? err.message : "Failed to load order PDF.");
+    } finally {
+      setIsOrderPdfLoading(false);
+    }
+  }
+
+  function printOrderPdf() {
+    if (!orderPdfUrl) {
+      return;
+    }
+
+    const previewWindow = window.open(orderPdfUrl, "_blank", "noopener,noreferrer");
+    previewWindow?.addEventListener("load", () => previewWindow.print(), { once: true });
+  }
+
+  async function handleCancelOrder(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!token || !selectedOrder || !cancelReason.trim()) {
+      setCancelError("Cancellation reason is required.");
+      return;
+    }
+
+    setIsCancelling(true);
+    setCancelError("");
+    setCancelSuccess("");
+
+    try {
+      const updatedOrder = await cancelOrder(token, selectedOrder.id, {
+        organizationId: selectedOrder.organizationId,
+        branchId: selectedOrder.branchId,
+        reason: cancelReason.trim(),
+      });
+      setSelectedOrder(updatedOrder);
+      if (user?.organizationId) {
+        setOrders(await fetchOrders(token, user.organizationId));
+      }
+      setCancelSuccess(`Order ${updatedOrder.orderNumber} cancelled.`);
+      setCancelReason("");
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Failed to cancel sales order.");
+    } finally {
+      setIsCancelling(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -148,6 +260,14 @@ export function SalesOrders() {
               <option value="">Select customer</option>
               {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.fullName}</option>)}
             </select>
+            <button
+              type="button"
+              onClick={() => setIsCustomerDialogOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700"
+            >
+              <CirclePlus className="h-4 w-4" />
+              <span>New customer</span>
+            </button>
             <div className="grid gap-4 md:grid-cols-2">
               <select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} className="crm-select">
                 <option value="">Select warehouse</option>
@@ -160,21 +280,53 @@ export function SalesOrders() {
               {" · "}
               Place of supply: <span className="font-medium text-slate-950">{selectedCustomer?.stateCode || "Derived when customer has a state code"}</span>
             </div>
-            {lines.map((line, index) => (
-              <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1.4fr)_90px_110px_40px]">
-                <select value={line.productId} onChange={(e) => {
-                  const product = products.find((item) => item.id === Number(e.target.value));
-                  updateLine(index, "productId", e.target.value);
-                  updateLine(index, "unitPrice", String(product?.defaultSalePrice ?? ""));
-                }} className="crm-select">
-                  <option value="">Select product</option>
-                  {products.map((product) => <option key={product.id} value={product.id}>{product.name} ({product.sku})</option>)}
-                </select>
-                <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" placeholder="Qty" />
-                <input value={line.unitPrice} onChange={(e) => updateLine(index, "unitPrice", e.target.value)} type="number" min="0" step="0.01" className="crm-field" placeholder="Price" />
-                <button type="button" onClick={() => setLines((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><Trash2 className="h-4 w-4" /></button>
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <div className="hidden grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] gap-3 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+                <div>Product</div>
+                <div>Qty</div>
+                <div>Price</div>
+                <div>Amount</div>
+                <div>Action</div>
               </div>
-            ))}
+              <div className="divide-y divide-slate-200 bg-white">
+                {lines.map((line, index) => {
+                  const lineAmount = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
+
+                  return (
+                    <div key={index} className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] lg:items-center">
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Product</div>
+                        <select value={line.productId} onChange={(e) => {
+                          const product = products.find((item) => item.id === Number(e.target.value));
+                          updateLine(index, "productId", e.target.value);
+                          updateLine(index, "unitPrice", String(product?.defaultSalePrice ?? ""));
+                        }} className="crm-select">
+                          <option value="">Select product</option>
+                          {products.map((product) => <option key={product.id} value={product.id}>{product.name} ({product.sku})</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Qty</div>
+                        <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" placeholder="Qty" />
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Price</div>
+                        <input value={line.unitPrice} onChange={(e) => updateLine(index, "unitPrice", e.target.value)} type="number" min="0" step="0.01" className="crm-field" placeholder="Price" />
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Amount</div>
+                        <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-900">
+                          {formatCurrency(lineAmount)}
+                        </div>
+                      </div>
+                      <div className="flex justify-end lg:justify-center">
+                        <button type="button" onClick={() => setLines((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <button type="button" onClick={() => setLines((current) => [...current, { productId: "", quantity: "1", unitPrice: "" }])} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700"><CirclePlus className="h-4 w-4" />Add line</button>
             <input value={remarks} onChange={(e) => setRemarks(e.target.value)} className="crm-field" placeholder="Remarks" />
             {(error || successMessage) && (
@@ -193,20 +345,135 @@ export function SalesOrders() {
             <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search order number or status" className="crm-field pl-11" />
           </div>
           <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-            <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid"><div>Order</div><div>Date</div><div>Total</div><div>Status</div></div>
+            <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid"><div>Order</div><div>Date</div><div>Total</div><div>Status</div><div>Action</div></div>
             <div className="divide-y divide-slate-200">
               {isLoading ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading orders...</div> : filteredOrders.length > 0 ? filteredOrders.map((order) => (
-                <div key={order.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr] lg:items-center">
+                <div key={order.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] lg:items-center">
                   <div><div className="text-base font-semibold text-slate-950">{order.orderNumber}</div><div className="mt-1 text-sm text-slate-500">Customer #{order.customerId}</div></div>
                   <div className="text-sm text-slate-600">{new Date(order.orderDate).toLocaleDateString("en-IN")}</div>
                   <div className="text-sm font-medium text-slate-900">{formatCurrency(order.totalAmount)}</div>
                   <div><span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{order.status}</span></div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => void openDetails(order.id)}
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      View details
+                    </button>
+                  </div>
                 </div>
               )) : <div className="px-6 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><ScrollText className="h-6 w-6" /></div><h2 className="mt-4 text-lg font-semibold text-slate-950">No sales orders yet</h2></div>}
             </div>
           </div>
         </section>
       </section>
+      <CustomerQuickCreateDialog
+        open={isCustomerDialogOpen}
+        onOpenChange={setIsCustomerDialogOpen}
+        onCreated={(customer) => {
+          setCustomers((current) => [customer, ...current]);
+          setCustomerId(String(customer.id));
+        }}
+      />
+      <DocumentDetailsDialog
+        open={selectedOrderId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (orderPdfUrl) {
+              URL.revokeObjectURL(orderPdfUrl);
+            }
+            setSelectedOrderId(null);
+            setSelectedOrder(null);
+            setOrderPdfUrl(null);
+            setOrderPdfError("");
+            setCancelReason("");
+            setCancelError("");
+            setCancelSuccess("");
+          }
+        }}
+        title={selectedOrder?.orderNumber ?? "Order details"}
+        description="Sales order details from the ERP sales order endpoint."
+        loading={isDetailsLoading}
+        rows={[
+          { label: "Customer", value: selectedOrder?.customerId ? `Customer #${selectedOrder.customerId}` : "-" },
+          { label: "Order Date", value: formatDate(selectedOrder?.orderDate) },
+          { label: "Warehouse", value: selectedOrder?.warehouseId ? `Warehouse #${selectedOrder.warehouseId}` : "-" },
+          { label: "Status", value: selectedOrder?.status ?? "-" },
+          { label: "Subtotal", value: formatCurrency(selectedOrder?.subtotal) },
+          { label: "Tax", value: formatCurrency(selectedOrder?.taxAmount) },
+          { label: "Total", value: formatCurrency(selectedOrder?.totalAmount) },
+          { label: "Remarks", value: selectedOrder?.remarks ?? "-" },
+        ]}
+        lines={(selectedOrder?.lines ?? []).map((line) => ({
+          id: line.id,
+          productId: line.productId,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          lineAmount: line.lineAmount,
+          remarks: line.remarks,
+        }))}
+        pdfUrl={orderPdfUrl}
+        pdfLoading={isOrderPdfLoading}
+        pdfError={orderPdfError}
+        onLoadPdf={() => void loadOrderPdf()}
+        onPrintPdf={printOrderPdf}
+      >
+        {selectedOrder && selectedOrder.status !== "CANCELLED" ? (
+          <form onSubmit={handleCancelOrder} className="rounded-3xl border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Cancel Order
+                </div>
+                <div className="mt-1 text-sm text-slate-600">
+                  Cancel this order when it should no longer remain active. Orders already converted to invoices will still be blocked by the backend.
+                </div>
+              </div>
+              <div className="rounded-2xl bg-slate-100 px-3 py-2 text-right">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Current Status
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-950">{selectedOrder.status}</div>
+              </div>
+            </div>
+
+            <label className="mt-4 block">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Cancellation Reason
+              </div>
+              <input
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                className="crm-field"
+                placeholder="Reason for cancelling this order"
+              />
+            </label>
+
+            {cancelError ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {cancelError}
+              </div>
+            ) : null}
+
+            {cancelSuccess ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                {cancelSuccess}
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="submit"
+                disabled={isCancelling}
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCancelling ? "Cancelling..." : "Cancel order"}
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </DocumentDetailsDialog>
     </div>
   );
 }

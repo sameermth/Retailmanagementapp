@@ -33,8 +33,26 @@ export interface SupplierResponse {
   createdAt: string;
 }
 
+export interface StoreSupplierTermsResponse {
+  id: number;
+  organizationId: number;
+  supplierId: number;
+  paymentTerms: string | null;
+  creditLimit: number | null;
+  creditDays: number | null;
+  isPreferred: boolean | null;
+  isActive: boolean | null;
+  contractStart: string | null;
+  contractEnd: string | null;
+  orderViaEmail: boolean | null;
+  orderViaWhatsapp: boolean | null;
+  remarks: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SupplierRequestPayload {
-  supplierCode: string;
+  supplierCode?: string;
   name: string;
   legalName?: string;
   tradeName?: string;
@@ -53,6 +71,19 @@ export interface SupplierRequestPayload {
   isPlatformLinked?: boolean;
   notes?: string;
   status?: string;
+}
+
+export interface StoreSupplierTermsPayload {
+  paymentTerms?: string;
+  creditLimit?: number;
+  creditDays?: number;
+  isPreferred?: boolean;
+  isActive?: boolean;
+  contractStart?: string;
+  contractEnd?: string;
+  orderViaEmail?: boolean;
+  orderViaWhatsapp?: boolean;
+  remarks?: string;
 }
 
 async function erpRequest<T>(path: string, token: string, options?: RequestInit & { idempotencyKey?: string }) {
@@ -85,6 +116,59 @@ export async function createVendor(
       idempotencyKey: createIdempotencyKey("erp-supplier:create", {
         organizationId,
         branchId,
+        ...payload,
+      }),
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function updateVendor(
+  token: string,
+  organizationId: number,
+  supplierId: number,
+  payload: SupplierRequestPayload,
+) {
+  return erpRequest<SupplierResponse>(
+    `/api/erp/suppliers/${supplierId}?organizationId=${organizationId}`,
+    token,
+    {
+      method: "PUT",
+      idempotencyKey: createIdempotencyKey("erp-supplier:update", {
+        organizationId,
+        supplierId,
+        ...payload,
+      }),
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function fetchSupplierTerms(
+  token: string,
+  organizationId: number,
+  supplierId: number,
+) {
+  return erpRequest<StoreSupplierTermsResponse>(
+    `/api/erp/suppliers/${supplierId}/terms?organizationId=${organizationId}`,
+    token,
+  );
+}
+
+export async function upsertSupplierTerms(
+  token: string,
+  organizationId: number,
+  supplierId: number,
+  payload: StoreSupplierTermsPayload,
+) {
+  return erpRequest<StoreSupplierTermsResponse>(
+    `/api/erp/suppliers/${supplierId}/terms?organizationId=${organizationId}`,
+    token,
+    {
+      method: "PUT",
+      idempotencyKey: createIdempotencyKey("erp-supplier-terms:upsert", {
+        organizationId,
+        supplierId,
         ...payload,
       }),
       body: JSON.stringify(payload),

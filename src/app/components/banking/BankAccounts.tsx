@@ -1,17 +1,30 @@
-import { Building2, Landmark, Plus } from "lucide-react";
+import { Building2, Landmark } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { readBankingState } from "./demo-banking";
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+import { useAuth } from "../../auth";
+import type { AccountResponse } from "../accounting/api";
+import { fetchBankingAccounts } from "./api";
 
 export function BankAccounts() {
-  const { accounts } = readBankingState();
+  const { token, user } = useAuth();
+  const [accounts, setAccounts] = useState<AccountResponse[]>([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadAccounts() {
+      if (!token || !user?.organizationId) {
+        return;
+      }
+
+      try {
+        setAccounts(await fetchBankingAccounts(token, user.organizationId));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "We could not load bank accounts.");
+      }
+    }
+
+    void loadAccounts();
+  }, [token, user?.organizationId]);
 
   return (
     <div className="space-y-6">
@@ -23,19 +36,25 @@ export function BankAccounts() {
             </div>
             <h1 className="mt-3 text-3xl font-semibold text-slate-950">Bank Accounts</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              Linked bank, cash, card, and clearing accounts. This is demo-backed until
-              the backend exposes a dedicated banking/accounts contract.
+              ERP finance accounts that behave as bank, cash, card, wallet, or clearing accounts
+              in reconciliation and cash-bank reporting flows.
             </p>
           </div>
 
           <Link
-            to="/banking/accounts/new"
+            to="/accountant/chart-of-accounts"
             className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
           >
-            <Plus className="h-4 w-4" />
-            <span>Add bank or credit card</span>
+            <Landmark className="h-4 w-4" />
+            <span>Open chart of accounts</span>
           </Link>
         </div>
+
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : null}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -60,17 +79,18 @@ export function BankAccounts() {
             </div>
 
             <h2 className="mt-5 text-lg font-semibold text-slate-950">{account.name}</h2>
-            <div className="mt-2 text-sm text-slate-500">
-              {account.institution} · {account.accountNumber}
-            </div>
-            <div className="mt-6 text-3xl font-semibold text-slate-950">
-              {formatCurrency(account.balance)}
-            </div>
+            <div className="mt-2 text-sm text-slate-500">{account.code}</div>
+            <div className="mt-6 text-3xl font-semibold text-slate-950">{account.accountType}</div>
             <div className="mt-2 text-sm capitalize text-slate-500">
-              {account.accountType.replace("-", " ")} account
+              {account.isSystem ? "System-managed" : "User-managed"} account
             </div>
           </article>
         ))}
+        {accounts.length === 0 ? (
+          <article className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
+            No bank-style finance accounts are available for this organization yet.
+          </article>
+        ) : null}
       </section>
     </div>
   );

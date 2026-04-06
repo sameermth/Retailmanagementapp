@@ -11,6 +11,7 @@ import {
   type SalesCustomerSummary,
   type StoreProductOption,
 } from "./api";
+import { CustomerQuickCreateDialog } from "./CustomerQuickCreateDialog";
 
 interface QuoteLineDraft {
   productId: string;
@@ -41,6 +42,7 @@ export function NewEstimate() {
   );
   const [remarks, setRemarks] = useState("");
   const [lines, setLines] = useState<QuoteLineDraft[]>([{ productId: "", quantity: "1", unitPrice: "" }]);
+  const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -58,7 +60,7 @@ export function NewEstimate() {
         const [customerResponse, productResponse, warehouseResponse] = await Promise.all([
           fetchSalesCustomers(token, user.organizationId),
           fetchStoreProductsForSales(token, user.organizationId),
-          fetchWarehouses(token),
+          fetchWarehouses(token, user.organizationId, user.defaultBranchId ?? undefined),
         ]);
 
         setCustomers(customerResponse.filter((customer) => customer.status !== "INACTIVE"));
@@ -218,6 +220,14 @@ export function NewEstimate() {
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomerDialogOpen(true)}
+                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    <CirclePlus className="h-3.5 w-3.5" />
+                    <span>New customer</span>
+                  </button>
                 </label>
 
                 <label className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
@@ -285,54 +295,74 @@ export function NewEstimate() {
                     <span>Add line</span>
                   </button>
                 </div>
+                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="hidden grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] gap-3 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+                    <div>Product</div>
+                    <div>Qty</div>
+                    <div>Unit Price</div>
+                    <div>Amount</div>
+                    <div>Action</div>
+                  </div>
+                  <div className="divide-y divide-slate-200 bg-white">
+                    {lines.map((line, index) => {
+                      const selectedProduct = products.find((item) => item.id === Number(line.productId));
+                      const lineAmount = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
 
-                {lines.map((line, index) => {
-                  const selectedProduct = products.find((item) => item.id === Number(line.productId));
-
-                  return (
-                    <div key={`${index}-${line.productId}`} className="grid gap-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[minmax(0,1.5fr)_120px_140px_44px] md:items-end">
-                      <label>
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Product</div>
-                        <select
-                          value={line.productId}
-                          onChange={(e) => {
-                            const productId = e.target.value;
-                            const product = products.find((item) => item.id === Number(productId));
-                            updateLine(index, "productId", productId);
-                            updateLine(index, "unitPrice", String(product?.defaultSalePrice ?? ""));
-                          }}
-                          className="crm-select"
-                        >
-                          <option value="">Select product</option>
-                          {products.map((product) => (
-                            <option key={product.id} value={product.id}>
-                              {product.name} ({product.sku})
-                            </option>
-                          ))}
-                        </select>
-                        {selectedProduct && (
-                          <div className="mt-2 text-xs text-slate-500">
-                            UOM #{selectedProduct.baseUomId} · Tracking {selectedProduct.inventoryTrackingMode}
+                      return (
+                        <div key={`${index}-${line.productId}`} className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] lg:items-center">
+                          <div>
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Product</div>
+                            <select
+                              value={line.productId}
+                              onChange={(e) => {
+                                const productId = e.target.value;
+                                const product = products.find((item) => item.id === Number(productId));
+                                updateLine(index, "productId", productId);
+                                updateLine(index, "unitPrice", String(product?.defaultSalePrice ?? ""));
+                              }}
+                              className="crm-select"
+                            >
+                              <option value="">Select product</option>
+                              {products.map((product) => (
+                                <option key={product.id} value={product.id}>
+                                  {product.name} ({product.sku})
+                                </option>
+                              ))}
+                            </select>
+                            {selectedProduct ? (
+                              <div className="mt-1 text-xs text-slate-500">
+                                UOM #{selectedProduct.baseUomId} · Tracking {selectedProduct.inventoryTrackingMode}
+                              </div>
+                            ) : null}
                           </div>
-                        )}
-                      </label>
 
-                      <label>
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Qty</div>
-                        <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" />
-                      </label>
+                          <div>
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Qty</div>
+                            <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" />
+                          </div>
 
-                      <label>
-                        <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Unit Price</div>
-                        <input value={line.unitPrice} onChange={(e) => updateLine(index, "unitPrice", e.target.value)} type="number" min="0" step="0.01" className="crm-field" />
-                      </label>
+                          <div>
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Unit Price</div>
+                            <input value={line.unitPrice} onChange={(e) => updateLine(index, "unitPrice", e.target.value)} type="number" min="0" step="0.01" className="crm-field" />
+                          </div>
 
-                      <button type="button" onClick={() => removeLine(index)} className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-white hover:text-rose-600">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  );
-                })}
+                          <div>
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Amount</div>
+                            <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-900">
+                              {formatCurrency(lineAmount)}
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end lg:justify-center">
+                            <button type="button" onClick={() => removeLine(index)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-rose-600">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -359,6 +389,14 @@ export function NewEstimate() {
           </button>
         </aside>
       </form>
+      <CustomerQuickCreateDialog
+        open={isCustomerDialogOpen}
+        onOpenChange={setIsCustomerDialogOpen}
+        onCreated={(customer) => {
+          setCustomers((current) => [customer, ...current]);
+          setCustomerId(String(customer.id));
+        }}
+      />
     </div>
   );
 }

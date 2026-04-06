@@ -2,16 +2,30 @@ import {
   AlertCircle,
   AlertTriangle,
   CirclePlus,
+  Link2,
   Package2,
   Search,
+  SquarePen,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "../../auth";
 import {
+  createSupplierProduct,
+  fetchStoreProductSupplierPreference,
+  fetchSupplierProducts,
+  fetchSupplierSummaries,
+  upsertStoreProductSupplierPreference,
+  type SupplierProductResponse,
+  type SupplierSummaryResponse,
+} from "../purchases/api";
+import {
+  fetchStoreProduct,
   fetchInventoryBalancesByWarehouse,
   fetchStoreProducts,
   fetchWarehouses,
+  updateStoreProduct,
   type InventoryBalanceResponse,
   type StoreProductResponse,
   type WarehouseResponse,
@@ -38,18 +52,58 @@ function getReorderLevel(item: StoreProductResponse) {
   return Number(item.reorderLevelBaseQty ?? 0);
 }
 
+interface SupplierLinkDraft {
+  supplierId: string;
+  supplierProductCode: string;
+  supplierProductName: string;
+  priority: string;
+  isPreferred: boolean;
+}
+
+interface StoreProductEditDraft {
+  sku: string;
+  name: string;
+  description: string;
+  minStockBaseQty: string;
+  reorderLevelBaseQty: string;
+  defaultSalePrice: string;
+  defaultWarrantyMonths: string;
+  warrantyTerms: string;
+  isActive: boolean;
+  isServiceItem: boolean;
+}
+
 export function ItemsList() {
-  const { token, user } = useAuth();
+  const { token, user, hasAnyPermission } = useAuth();
   const [items, setItems] = useState<StoreProductResponse[]>([]);
   const [balances, setBalances] = useState<InventoryBalanceResponse[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseResponse[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierSummaryResponse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [filter, setFilter] = useState<StockFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedItem, setSelectedItem] = useState<StoreProductResponse | null>(null);
+  const [supplierProducts, setSupplierProducts] = useState<SupplierProductResponse[]>([]);
+  const [preferenceSupplierProductId, setPreferenceSupplierProductId] = useState<number | null>(null);
+  const [supplierLink, setSupplierLink] = useState<SupplierLinkDraft>({
+    supplierId: "",
+    supplierProductCode: "",
+    supplierProductName: "",
+    priority: "1",
+    isPreferred: true,
+  });
+  const [supplierLinkError, setSupplierLinkError] = useState("");
+  const [isSavingSupplierLink, setIsSavingSupplierLink] = useState(false);
+  const [editingItem, setEditingItem] = useState<StoreProductResponse | null>(null);
+  const [editDraft, setEditDraft] = useState<StoreProductEditDraft | null>(null);
+  const [editError, setEditError] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const organizationId = user?.organizationId ?? 1;
+  const canManageSupplierLinks = hasAnyPermission(["purchase.create", "purchase.manage"]);
+  const canManageCatalog = hasAnyPermission(["catalog.manage"]);
 
   useEffect(() => {
     async function loadInventoryPage() {
@@ -61,8 +115,13 @@ export function ItemsList() {
       setError("");
 
       try {
-        const warehouseList = await fetchWarehouses(token);
+        const [warehouseList, storeProducts, supplierList] = await Promise.all([
+          fetchWarehouses(token, organizationId, user?.defaultBranchId ?? undefined),
+          fetchStoreProducts(token, organizationId),
+          canManageSupplierLinks ? fetchSupplierSummaries(token, organizationId) : Promise.resolve([]),
+        ]);
         setWarehouses(warehouseList);
+        setSuppliers(supplierList);
 
         const preferredWarehouse =
           warehouseList.find((warehouse) => warehouse.isPrimary) ?? warehouseList[0] ?? null;
@@ -74,7 +133,6 @@ export function ItemsList() {
           setSelectedWarehouseId(preferredWarehouse.id.toString());
         }
 
-        const storeProducts = await fetchStoreProducts(token, organizationId);
         setItems(storeProducts);
 
         if (resolvedWarehouseId) {
@@ -95,7 +153,7 @@ export function ItemsList() {
     }
 
     void loadInventoryPage();
-  }, [token, organizationId]);
+  }, [token, organizationId, user?.defaultBranchId]);
 
   useEffect(() => {
     async function loadBalances() {
@@ -117,6 +175,60 @@ export function ItemsList() {
 
     void loadBalances();
   }, [token, organizationId, selectedWarehouseId]);
+
+  useEffect(() => {
+    async function loadSupplierContext() {
+      if (!token || !selectedItem || !canManageSupplierLinks) {
+        setSupplierProducts([]);
+        setPreferenceSupplierProductId(null);
+        setSupplierLink({
+          supplierId: "",
+          supplierProductCode: "",
+          supplierProductName: selectedItem?.name ?? "",
+          priority: "1",
+          isPreferred: true,
+        });
+        return;
+      }
+
+      setSupplierLinkError("");
+      try {
+        const preference = await fetchStoreProductSupplierPreference(
+          token,
+          organizationId,
+          selectedItem.id,
+        ).catch(() => null);
+        setPreferenceSupplierProductId(preference?.supplierProductId ?? null);
+      } catch {
+        setPreferenceSupplierProductId(null);
+      }
+    }
+
+    void loadSupplierContext();
+  }, [canManageSupplierLinks, organizationId, selectedItem, token]);
+
+  useEffect(() => {
+    async function loadSupplierProducts() {
+      if (!token || !selectedItem || !supplierLink.supplierId) {
+        setSupplierProducts([]);
+        return;
+      }
+
+      try {
+        const response = await fetchSupplierProducts(
+          token,
+          organizationId,
+          Number(supplierLink.supplierId),
+        );
+        setSupplierProducts(response.filter((item) => item.productId === (selectedItem.productId ?? 0)));
+      } catch (err) {
+        setSupplierProducts([]);
+        setSupplierLinkError(err instanceof Error ? err.message : "Failed to load supplier product links.");
+      }
+    }
+
+    void loadSupplierProducts();
+  }, [organizationId, selectedItem, supplierLink.supplierId, token]);
 
   const balanceMap = useMemo(
     () => new Map(balances.map((balance) => [balance.productId, balance])),
@@ -153,6 +265,172 @@ export function ItemsList() {
     const reorderLevel = getReorderLevel(item);
     return reorderLevel > 0 && availableQty <= reorderLevel;
   }).length;
+
+  async function handleCreateSupplierLink() {
+    if (!token || !selectedItem || !supplierLink.supplierId || !selectedItem.productId) {
+      setSupplierLinkError("Select a supplier first. Shared product linkage must exist on the store product.");
+      return;
+    }
+
+    setIsSavingSupplierLink(true);
+    setSupplierLinkError("");
+
+    try {
+      const linkedSupplierProduct = await createSupplierProduct(
+        token,
+        organizationId,
+        Number(supplierLink.supplierId),
+        {
+          productId: selectedItem.productId,
+          supplierProductCode: supplierLink.supplierProductCode.trim() || undefined,
+          supplierProductName: supplierLink.supplierProductName.trim() || undefined,
+          priority: supplierLink.priority.trim() ? Number(supplierLink.priority) : undefined,
+          isPreferred: supplierLink.isPreferred,
+          isActive: true,
+        },
+      );
+
+      if (supplierLink.isPreferred) {
+        await upsertStoreProductSupplierPreference(token, organizationId, selectedItem.id, {
+          supplierId: Number(supplierLink.supplierId),
+          supplierProductId: linkedSupplierProduct.id,
+          isActive: true,
+          remarks: "Linked from inventory item catalog",
+        });
+        setPreferenceSupplierProductId(linkedSupplierProduct.id);
+      }
+
+      const refreshed = await fetchSupplierProducts(
+        token,
+        organizationId,
+        Number(supplierLink.supplierId),
+      );
+      setSupplierProducts(
+        refreshed.filter((item) => item.productId === (selectedItem.productId ?? 0)),
+      );
+      setSupplierLink((current) => ({
+        ...current,
+        supplierProductCode: "",
+        supplierProductName: selectedItem.name,
+        priority: "1",
+      }));
+    } catch (err) {
+      setSupplierLinkError(err instanceof Error ? err.message : "Failed to attach product to supplier.");
+    } finally {
+      setIsSavingSupplierLink(false);
+    }
+  }
+
+  async function handleOpenEditItem(item: StoreProductResponse) {
+    if (!token) {
+      return;
+    }
+
+    setEditingItem(item);
+    setEditError("");
+    try {
+      const detail = await fetchStoreProduct(token, item.id);
+      setEditingItem(detail);
+      setEditDraft({
+        sku: detail.sku,
+        name: detail.name,
+        description: detail.description ?? "",
+        minStockBaseQty: detail.minStockBaseQty ?? "",
+        reorderLevelBaseQty: detail.reorderLevelBaseQty ?? "",
+        defaultSalePrice:
+          detail.defaultSalePrice != null ? String(detail.defaultSalePrice) : "",
+        defaultWarrantyMonths:
+          detail.defaultWarrantyMonths != null ? String(detail.defaultWarrantyMonths) : "",
+        warrantyTerms: detail.warrantyTerms ?? "",
+        isActive: detail.isActive,
+        isServiceItem: detail.isServiceItem,
+      });
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to load store product.");
+      setEditDraft({
+        sku: item.sku,
+        name: item.name,
+        description: item.description ?? "",
+        minStockBaseQty: item.minStockBaseQty ?? "",
+        reorderLevelBaseQty: item.reorderLevelBaseQty ?? "",
+        defaultSalePrice: item.defaultSalePrice != null ? String(item.defaultSalePrice) : "",
+        defaultWarrantyMonths:
+          item.defaultWarrantyMonths != null ? String(item.defaultWarrantyMonths) : "",
+        warrantyTerms: item.warrantyTerms ?? "",
+        isActive: item.isActive,
+        isServiceItem: item.isServiceItem,
+      });
+    }
+  }
+
+  function closeEditItem() {
+    setEditingItem(null);
+    setEditDraft(null);
+    setEditError("");
+    setIsSavingEdit(false);
+  }
+
+  async function handleSaveEditItem() {
+    if (!token || !editingItem || !editDraft) {
+      return;
+    }
+
+    setIsSavingEdit(true);
+    setEditError("");
+
+    try {
+      const updated = await updateStoreProduct(token, editingItem.id, {
+        organizationId,
+        productId: editingItem.productId ?? undefined,
+        categoryId: editingItem.categoryId,
+        brandId: editingItem.brandId,
+        baseUomId: editingItem.baseUomId,
+        taxGroupId: editingItem.taxGroupId ?? undefined,
+        sku: editDraft.sku.trim(),
+        name: editDraft.name.trim(),
+        description: editDraft.description.trim() || undefined,
+        inventoryTrackingMode: editingItem.inventoryTrackingMode,
+        serialTrackingEnabled: editingItem.serialTrackingEnabled,
+        batchTrackingEnabled: editingItem.batchTrackingEnabled,
+        expiryTrackingEnabled: editingItem.expiryTrackingEnabled,
+        fractionalQuantityAllowed: editingItem.fractionalQuantityAllowed,
+        minStockBaseQty: editDraft.minStockBaseQty.trim()
+          ? Number(editDraft.minStockBaseQty)
+          : undefined,
+        reorderLevelBaseQty: editDraft.reorderLevelBaseQty.trim()
+          ? Number(editDraft.reorderLevelBaseQty)
+          : undefined,
+        defaultSalePrice: editDraft.defaultSalePrice.trim()
+          ? Number(editDraft.defaultSalePrice)
+          : undefined,
+        defaultWarrantyMonths: editDraft.defaultWarrantyMonths.trim()
+          ? Number(editDraft.defaultWarrantyMonths)
+          : undefined,
+        warrantyTerms: editDraft.warrantyTerms.trim() || undefined,
+        isServiceItem: editDraft.isServiceItem,
+        isActive: editDraft.isActive,
+        attributes:
+          editingItem.attributes?.map((attribute) => ({
+            attributeDefinitionId: attribute.attributeDefinitionId,
+            valueText: attribute.valueText ?? undefined,
+            valueNumber: attribute.valueNumber != null ? Number(attribute.valueNumber) : undefined,
+            valueBoolean: attribute.valueBoolean ?? undefined,
+            valueDate: attribute.valueDate ?? undefined,
+            valueOptionId: attribute.valueOptionId ?? undefined,
+            valueJson: attribute.valueJson ?? undefined,
+          })) ?? [],
+      });
+
+      setItems((current) =>
+        current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+      );
+      closeEditItem();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to update store product.");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
 
   const trackedStockItems = items.filter((item) => !item.isServiceItem).length;
 
@@ -349,12 +627,47 @@ export function ItemsList() {
                           {item.description && (
                             <div className="mt-2 text-sm text-slate-600">{item.description}</div>
                           )}
+                          <div className="mt-2 text-sm text-slate-500">
+                            {item.categoryName || `Category #${item.categoryId}`} · {item.brandName || `Brand #${item.brandId}`}
+                          </div>
                           {isLowStock && (
                             <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
                               <AlertTriangle className="h-3.5 w-3.5" />
                               <span>Low stock at selected warehouse</span>
                             </div>
                           )}
+                          {canManageSupplierLinks ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedItem(item);
+                                  setSupplierLink({
+                                    supplierId: "",
+                                    supplierProductCode: "",
+                                    supplierProductName: item.name,
+                                    priority: "1",
+                                    isPreferred: true,
+                                  });
+                                  setSupplierLinkError("");
+                                }}
+                                className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                              >
+                                <Link2 className="h-3.5 w-3.5" />
+                                <span>Attach supplier</span>
+                              </button>
+                              {canManageCatalog ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleOpenEditItem(item)}
+                                  className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                                >
+                                  <SquarePen className="h-3.5 w-3.5" />
+                                  <span>Edit item</span>
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -415,6 +728,286 @@ export function ItemsList() {
           </div>
         </div>
       </section>
+
+      {selectedItem ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Supplier Attachment
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-950">{selectedItem.name}</h2>
+                <div className="mt-2 text-sm text-slate-600">
+                  {selectedItem.sku} · {selectedItem.categoryName || `Category #${selectedItem.categoryId}`} · {selectedItem.brandName || `Brand #${selectedItem.brandId}`}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedItem(null)}
+                className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {!selectedItem.productId ? (
+              <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                This store product is not linked to a shared product master yet, so supplier mapping cannot be created from the backend flow.
+              </div>
+            ) : (
+              <div className="mt-6 space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Supplier
+                    </div>
+                    <select
+                      value={supplierLink.supplierId}
+                      onChange={(event) =>
+                        setSupplierLink((current) => ({ ...current, supplierId: event.target.value }))
+                      }
+                      className="crm-select mt-3"
+                    >
+                      <option value="">Select supplier</option>
+                      {suppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name} ({supplier.supplierCode})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Priority
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      value={supplierLink.priority}
+                      onChange={(event) =>
+                        setSupplierLink((current) => ({ ...current, priority: event.target.value }))
+                      }
+                      className="crm-field mt-3"
+                    />
+                  </label>
+
+                  <label className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Supplier Product Code
+                    </div>
+                    <input
+                      value={supplierLink.supplierProductCode}
+                      onChange={(event) =>
+                        setSupplierLink((current) => ({
+                          ...current,
+                          supplierProductCode: event.target.value,
+                        }))
+                      }
+                      placeholder="Optional supplier code"
+                      className="crm-field mt-3"
+                    />
+                  </label>
+
+                  <label className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Supplier Product Name
+                    </div>
+                    <input
+                      value={supplierLink.supplierProductName}
+                      onChange={(event) =>
+                        setSupplierLink((current) => ({
+                          ...current,
+                          supplierProductName: event.target.value,
+                        }))
+                      }
+                      placeholder="Optional supplier-facing name"
+                      className="crm-field mt-3"
+                    />
+                  </label>
+                </div>
+
+                <label className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-slate-50/70 px-4 py-4">
+                  <div>
+                    <span className="text-sm font-medium text-slate-700">Mark as preferred supplier path</span>
+                    <div className="mt-1 text-xs text-slate-500">
+                      This sets the store product supplier preference used by purchasing flows.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={supplierLink.isPreferred}
+                    onChange={(event) =>
+                      setSupplierLink((current) => ({ ...current, isPreferred: event.target.checked }))
+                    }
+                    className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                  />
+                </label>
+
+                {supplierLinkError ? (
+                  <div className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                    <span>{supplierLinkError}</span>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateSupplierLink()}
+                    disabled={isSavingSupplierLink}
+                    className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    <Link2 className="h-4 w-4" />
+                    <span>{isSavingSupplierLink ? "Saving..." : "Attach supplier"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedItem(null)}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    <span>Close</span>
+                  </button>
+                </div>
+
+                {supplierProducts.length > 0 ? (
+                  <div className="rounded-3xl border border-slate-200">
+                    <div className="grid grid-cols-[minmax(0,1.3fr)_1fr_0.7fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      <div>Linked Supplier Product</div>
+                      <div>Code</div>
+                      <div>Priority</div>
+                      <div>Status</div>
+                    </div>
+                    <div className="divide-y divide-slate-200">
+                      {supplierProducts.map((product) => (
+                        <div
+                          key={product.id}
+                          className="grid grid-cols-[minmax(0,1.3fr)_1fr_0.7fr_0.8fr] gap-4 px-5 py-4 text-sm"
+                        >
+                          <div className="min-w-0 font-medium text-slate-900">
+                            {product.supplierProductName || selectedItem.name}
+                            {preferenceSupplierProductId === product.id ? (
+                              <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                                Preferred
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="truncate text-slate-600">
+                            {product.supplierProductCode || "-"}
+                          </div>
+                          <div className="text-slate-600">{product.priority ?? "-"}</div>
+                          <div className="text-slate-600">
+                            {product.isActive ? "Active" : "Inactive"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {editingItem && editDraft ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-5">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Store Product Maintenance
+                </div>
+                <h2 className="mt-2 text-2xl font-semibold text-slate-950">{editingItem.name}</h2>
+                <div className="mt-2 text-sm text-slate-600">
+                  Update store-level product data like thresholds, selling price, warranty defaults,
+                  and active status.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditItem}
+                className="rounded-full border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <label>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">SKU</div>
+                <input value={editDraft.sku} onChange={(e) => setEditDraft((current) => current ? { ...current, sku: e.target.value } : current)} className="crm-field uppercase" />
+              </label>
+              <label>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Name</div>
+                <input value={editDraft.name} onChange={(e) => setEditDraft((current) => current ? { ...current, name: e.target.value } : current)} className="crm-field" />
+              </label>
+              <label className="md:col-span-2">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Description</div>
+                <textarea value={editDraft.description} onChange={(e) => setEditDraft((current) => current ? { ...current, description: e.target.value } : current)} rows={3} className="crm-textarea" />
+              </label>
+              <label>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Minimum Stock</div>
+                <input value={editDraft.minStockBaseQty} onChange={(e) => setEditDraft((current) => current ? { ...current, minStockBaseQty: e.target.value } : current)} className="crm-field" />
+              </label>
+              <label>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Reorder Level</div>
+                <input value={editDraft.reorderLevelBaseQty} onChange={(e) => setEditDraft((current) => current ? { ...current, reorderLevelBaseQty: e.target.value } : current)} className="crm-field" />
+              </label>
+              <label>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Default Sale Price</div>
+                <input value={editDraft.defaultSalePrice} onChange={(e) => setEditDraft((current) => current ? { ...current, defaultSalePrice: e.target.value } : current)} className="crm-field" />
+              </label>
+              <label>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Default Warranty Months</div>
+                <input value={editDraft.defaultWarrantyMonths} onChange={(e) => setEditDraft((current) => current ? { ...current, defaultWarrantyMonths: e.target.value } : current)} className="crm-field" />
+              </label>
+              <label className="md:col-span-2">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Warranty Terms</div>
+                <textarea value={editDraft.warrantyTerms} onChange={(e) => setEditDraft((current) => current ? { ...current, warrantyTerms: e.target.value } : current)} rows={3} className="crm-textarea" />
+              </label>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-sm text-slate-700">
+                <input type="checkbox" checked={editDraft.isActive} onChange={(e) => setEditDraft((current) => current ? { ...current, isActive: e.target.checked } : current)} />
+                <span>Product active</span>
+              </label>
+              <label className="flex items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-sm text-slate-700">
+                <input type="checkbox" checked={editDraft.isServiceItem} onChange={(e) => setEditDraft((current) => current ? { ...current, isServiceItem: e.target.checked } : current)} />
+                <span>Service item</span>
+              </label>
+            </div>
+
+            {editError ? (
+              <div className="mt-6 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{editError}</span>
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void handleSaveEditItem()}
+                disabled={isSavingEdit}
+                className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+              >
+                <SquarePen className="h-4 w-4" />
+                <span>{isSavingEdit ? "Saving..." : "Save item"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={closeEditItem}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-5 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                <span>Close</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

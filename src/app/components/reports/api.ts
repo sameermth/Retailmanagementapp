@@ -59,6 +59,27 @@ export interface ProfitabilitySummaryDTO {
   topProducts: ProfitabilityProductDTO[];
 }
 
+export interface TopProductDTO {
+  productId: number;
+  productName: string;
+  sku: string;
+  category: string | null;
+  quantitySold: number;
+  totalRevenue: number;
+  averagePrice: number;
+}
+
+export interface LowStockAlertDTO {
+  productId: number;
+  productName: string;
+  sku: string;
+  category: string | null;
+  currentStock: number;
+  reorderLevel: number;
+  recommendedOrder: number;
+  status: string;
+}
+
 export interface RecentActivityDTO {
   id: number;
   type: string;
@@ -89,6 +110,41 @@ export interface StockSummaryDTO {
   lowStockCount: number;
   outOfStockCount: number;
   lowStockProducts: StockProductSnapshotDTO[];
+}
+
+export interface UpcomingDueDTO {
+  customerId: number;
+  customerName: string;
+  customerPhone: string | null;
+  dueAmount: number;
+  dueDate: string;
+  daysRemaining: number;
+  status: string;
+}
+
+export interface DueSummaryDTO {
+  totalDueAmount: number;
+  totalDueCustomers: number;
+  overdueAmount: number;
+  overdueCount: number;
+  dueThisWeek: number;
+  dueNextWeek: number;
+  upcomingDues: UpcomingDueDTO[];
+}
+
+export interface AgingSummaryDTO {
+  totalOutstanding: number;
+  current: number;
+  bucket1To30: number;
+  bucket31To60: number;
+  bucket61To90: number;
+  bucket90Plus: number;
+}
+
+export interface AgingDashboardDTO {
+  asOfDate: string;
+  customers: AgingSummaryDTO;
+  suppliers: AgingSummaryDTO;
 }
 
 export interface TaxSummaryDTO {
@@ -176,9 +232,44 @@ export async function fetchRecentActivities(token: string, limit = 6) {
   );
 }
 
+export async function fetchTopProducts(token: string, limit = 5) {
+  return apiRequest<TopProductDTO[]>(
+    `/api/dashboard/products/top?${query({ limit })}`,
+    { method: "GET", token },
+  );
+}
+
+export async function fetchLowStockAlerts(token: string) {
+  return apiRequest<LowStockAlertDTO[]>("/api/dashboard/inventory/low-stock", {
+    method: "GET",
+    token,
+  });
+}
+
 export async function fetchStockSummary(token: string, limit = 5) {
   return apiRequest<StockSummaryDTO>(
     `/api/dashboard/inventory/stock-summary?${query({ limit })}`,
+    { method: "GET", token },
+  );
+}
+
+export async function fetchDueSummary(token: string) {
+  return apiRequest<DueSummaryDTO>("/api/dashboard/dues/summary", {
+    method: "GET",
+    token,
+  });
+}
+
+export async function fetchUpcomingDues(token: string, days = 7) {
+  return apiRequest<UpcomingDueDTO[]>(
+    `/api/dashboard/dues/upcoming?${query({ days })}`,
+    { method: "GET", token },
+  );
+}
+
+export async function fetchAgingDashboard(token: string, asOfDate?: string) {
+  return apiRequest<AgingDashboardDTO>(
+    `/api/dashboard/aging?${query({ asOfDate })}`,
     { method: "GET", token },
   );
 }

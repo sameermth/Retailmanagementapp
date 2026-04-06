@@ -2,22 +2,41 @@ import { AlertCircle, CirclePlus, FileText, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "../../auth";
-import { fetchQuotes, type SalesQuoteSummaryResponse } from "./api";
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+import {
+  cancelQuote,
+  fetchQuote,
+  fetchQuotePdf,
+  fetchQuotes,
+  type SalesQuoteDetailResponse,
+  type SalesQuoteSummaryResponse,
+} from "./api";
+import { DocumentDetailsDialog, formatCurrency, formatDate } from "./DocumentDetailsDialog";
 
 export function EstimatesList() {
   const { token, user } = useAuth();
   const [quotes, setQuotes] = useState<SalesQuoteSummaryResponse[]>([]);
+  const [selectedQuote, setSelectedQuote] = useState<SalesQuoteDetailResponse | null>(null);
+  const [selectedQuoteId, setSelectedQuoteId] = useState<number | null>(null);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+  const [quotePdfUrl, setQuotePdfUrl] = useState<string | null>(null);
+  const [isQuotePdfLoading, setIsQuotePdfLoading] = useState(false);
+  const [quotePdfError, setQuotePdfError] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const [cancelSuccess, setCancelSuccess] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(
+    () => () => {
+      if (quotePdfUrl) {
+        URL.revokeObjectURL(quotePdfUrl);
+      }
+    },
+    [quotePdfUrl],
+  );
 
   useEffect(() => {
     async function loadQuotes() {
@@ -68,6 +87,92 @@ export function EstimatesList() {
       ),
     [filteredQuotes],
   );
+
+  async function openDetails(quoteId: number) {
+    if (!token) {
+      return;
+    }
+
+    if (quotePdfUrl) {
+      URL.revokeObjectURL(quotePdfUrl);
+      setQuotePdfUrl(null);
+    }
+    setQuotePdfError("");
+    setCancelReason("");
+    setCancelError("");
+    setCancelSuccess("");
+    setSelectedQuoteId(quoteId);
+    setIsDetailsLoading(true);
+
+    try {
+      setSelectedQuote(await fetchQuote(token, quoteId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load quote details.");
+    } finally {
+      setIsDetailsLoading(false);
+    }
+  }
+
+  async function loadQuotePdf() {
+    if (!token || !selectedQuoteId) {
+      return;
+    }
+
+    setIsQuotePdfLoading(true);
+    setQuotePdfError("");
+
+    try {
+      const pdfBlob = await fetchQuotePdf(token, selectedQuoteId);
+      if (quotePdfUrl) {
+        URL.revokeObjectURL(quotePdfUrl);
+      }
+      setQuotePdfUrl(URL.createObjectURL(pdfBlob));
+    } catch (err) {
+      setQuotePdfError(err instanceof Error ? err.message : "Failed to load quote PDF.");
+    } finally {
+      setIsQuotePdfLoading(false);
+    }
+  }
+
+  function printQuotePdf() {
+    if (!quotePdfUrl) {
+      return;
+    }
+
+    const previewWindow = window.open(quotePdfUrl, "_blank", "noopener,noreferrer");
+    previewWindow?.addEventListener("load", () => previewWindow.print(), { once: true });
+  }
+
+  async function handleCancelQuote(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!token || !selectedQuote || !cancelReason.trim()) {
+      setCancelError("Cancellation reason is required.");
+      return;
+    }
+
+    setIsCancelling(true);
+    setCancelError("");
+    setCancelSuccess("");
+
+    try {
+      const updatedQuote = await cancelQuote(token, selectedQuote.id, {
+        organizationId: selectedQuote.organizationId,
+        branchId: selectedQuote.branchId,
+        reason: cancelReason.trim(),
+      });
+      setSelectedQuote(updatedQuote);
+      if (user?.organizationId) {
+        setQuotes(await fetchQuotes(token, user.organizationId));
+      }
+      setCancelSuccess(`Quote ${updatedQuote.quoteNumber} cancelled.`);
+      setCancelReason("");
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Failed to cancel quote.");
+    } finally {
+      setIsCancelling(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -135,12 +240,13 @@ export function EstimatesList() {
         )}
 
         <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-          <div className="hidden grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+          <div className="hidden grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
             <div>Quote</div>
             <div>Type</div>
             <div>Date</div>
             <div>Total</div>
             <div>Status</div>
+            <div>Action</div>
           </div>
 
           <div className="divide-y divide-slate-200">
@@ -150,7 +256,7 @@ export function EstimatesList() {
               filteredQuotes.map((quote) => (
                 <div
                   key={quote.id}
-                  className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr] lg:items-center"
+                  className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr] lg:items-center"
                 >
                   <div>
                     <div className="text-base font-semibold text-slate-950">{quote.quoteNumber}</div>
@@ -168,6 +274,15 @@ export function EstimatesList() {
                       {quote.status}
                     </span>
                   </div>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => void openDetails(quote.id)}
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                    >
+                      View details
+                    </button>
+                  </div>
                 </div>
               ))
             ) : (
@@ -184,6 +299,107 @@ export function EstimatesList() {
           </div>
         </div>
       </section>
+
+      <DocumentDetailsDialog
+        open={selectedQuoteId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (quotePdfUrl) {
+              URL.revokeObjectURL(quotePdfUrl);
+            }
+            setSelectedQuoteId(null);
+            setSelectedQuote(null);
+            setQuotePdfUrl(null);
+            setQuotePdfError("");
+            setCancelReason("");
+            setCancelError("");
+            setCancelSuccess("");
+          }
+        }}
+        title={selectedQuote?.quoteNumber ?? "Quote details"}
+        description="Sales quote details from the ERP quote endpoint."
+        loading={isDetailsLoading}
+        rows={[
+          { label: "Customer", value: selectedQuote?.customerId ? `Customer #${selectedQuote.customerId}` : "-" },
+          { label: "Quote Type", value: selectedQuote?.quoteType ?? "-" },
+          { label: "Quote Date", value: formatDate(selectedQuote?.quoteDate) },
+          { label: "Valid Until", value: formatDate(selectedQuote?.validUntil) },
+          { label: "Warehouse", value: selectedQuote?.warehouseId ? `Warehouse #${selectedQuote.warehouseId}` : "-" },
+          { label: "Status", value: selectedQuote?.status ?? "-" },
+          { label: "Subtotal", value: formatCurrency(selectedQuote?.subtotal) },
+          { label: "Tax", value: formatCurrency(selectedQuote?.taxAmount) },
+          { label: "Total", value: formatCurrency(selectedQuote?.totalAmount) },
+          { label: "Remarks", value: selectedQuote?.remarks ?? "-" },
+        ]}
+        lines={(selectedQuote?.lines ?? []).map((line) => ({
+          id: line.id,
+          productId: line.productId,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          lineAmount: line.lineAmount,
+          remarks: line.remarks,
+        }))}
+        pdfUrl={quotePdfUrl}
+        pdfLoading={isQuotePdfLoading}
+        pdfError={quotePdfError}
+        onLoadPdf={() => void loadQuotePdf()}
+        onPrintPdf={printQuotePdf}
+      >
+        {selectedQuote && selectedQuote.status !== "CANCELLED" ? (
+          <form onSubmit={handleCancelQuote} className="rounded-3xl border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Cancel Quote
+                </div>
+                <div className="mt-1 text-sm text-slate-600">
+                  Cancel this quote when it should no longer remain active. The backend will still block quotes that already have an active converted order or invoice.
+                </div>
+              </div>
+              <div className="rounded-2xl bg-slate-100 px-3 py-2 text-right">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Current Status
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-950">{selectedQuote.status}</div>
+              </div>
+            </div>
+
+            <label className="mt-4 block">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Cancellation Reason
+              </div>
+              <input
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                className="crm-field"
+                placeholder="Reason for cancelling this quote"
+              />
+            </label>
+
+            {cancelError ? (
+              <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {cancelError}
+              </div>
+            ) : null}
+
+            {cancelSuccess ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                {cancelSuccess}
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="submit"
+                disabled={isCancelling}
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCancelling ? "Cancelling..." : "Cancel quote"}
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </DocumentDetailsDialog>
     </div>
   );
 }

@@ -2,17 +2,23 @@ import { AlertCircle, CirclePlus, ReceiptText, Search, Trash2 } from "lucide-rea
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { fetchStoreProducts, fetchWarehouses, type StoreProductResponse, type WarehouseResponse } from "../inventory/api";
+import { DocumentDetailsDialog, formatCurrency as formatDocumentCurrency, formatDate } from "../sales/DocumentDetailsDialog";
 import {
   createPurchaseReceipt,
   fetchPurchaseOrder,
   fetchPurchaseOrders,
+  fetchPurchaseReceipt,
+  fetchPurchaseReceiptPdf,
   fetchPurchaseReceipts,
+  fetchSupplierPaymentPdf,
   fetchSupplierCatalog,
   fetchSupplierSummaries,
   type PurchasableStoreProductResponse,
   type PurchaseOrderDetailResponse,
+  type PurchaseReceiptDetailResponse,
   type PurchaseOrderSummaryResponse,
   type PurchaseReceiptSummaryResponse,
+  type PurchaseReceiptAllocationResponse,
   type SupplierSummaryResponse,
 } from "./api";
 
@@ -50,6 +56,23 @@ export function PurchaseReceipts() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [selectedReceiptId, setSelectedReceiptId] = useState<number | null>(null);
+  const [selectedReceipt, setSelectedReceipt] = useState<PurchaseReceiptDetailResponse | null>(null);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+  const [receiptPdfUrl, setReceiptPdfUrl] = useState<string | null>(null);
+  const [receiptPdfError, setReceiptPdfError] = useState("");
+  const [isReceiptPdfLoading, setIsReceiptPdfLoading] = useState(false);
+  const [activePdfLabel, setActivePdfLabel] = useState("");
+  const [paymentPreviewLoadingId, setPaymentPreviewLoadingId] = useState<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (receiptPdfUrl) {
+        URL.revokeObjectURL(receiptPdfUrl);
+      }
+    },
+    [receiptPdfUrl],
+  );
 
   useEffect(() => {
     async function loadData() {
@@ -62,7 +85,7 @@ export function PurchaseReceipts() {
           fetchPurchaseOrders(token, user.organizationId),
           fetchSupplierSummaries(token, user.organizationId),
           fetchStoreProducts(token, user.organizationId),
-          fetchWarehouses(token),
+          fetchWarehouses(token, user.organizationId, user.defaultBranchId ?? undefined),
         ]);
         setReceipts(receiptsResponse);
         setOrders(ordersResponse);
@@ -199,6 +222,112 @@ export function PurchaseReceipts() {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, [field]: value } : line)));
   }
 
+  async function openReceiptDetails(receiptId: number) {
+    if (!token) {
+      return;
+    }
+
+    if (receiptPdfUrl) {
+      URL.revokeObjectURL(receiptPdfUrl);
+      setReceiptPdfUrl(null);
+    }
+    setReceiptPdfError("");
+    setActivePdfLabel("");
+    setSelectedReceiptId(receiptId);
+    setIsDetailsLoading(true);
+
+    try {
+      setSelectedReceipt(await fetchPurchaseReceipt(token, receiptId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load purchase receipt details.");
+    } finally {
+      setIsDetailsLoading(false);
+    }
+  }
+
+  async function loadReceiptPdf() {
+    if (!token || !selectedReceiptId) {
+      return;
+    }
+
+    setIsReceiptPdfLoading(true);
+    setReceiptPdfError("");
+
+    try {
+      const pdfBlob = await fetchPurchaseReceiptPdf(token, selectedReceiptId);
+      if (receiptPdfUrl) {
+        URL.revokeObjectURL(receiptPdfUrl);
+      }
+      setReceiptPdfUrl(URL.createObjectURL(pdfBlob));
+      setActivePdfLabel(`purchase receipt ${selectedReceipt?.receiptNumber ?? selectedReceiptId}`);
+    } catch (err) {
+      setReceiptPdfError(err instanceof Error ? err.message : "Failed to load purchase receipt PDF.");
+    } finally {
+      setIsReceiptPdfLoading(false);
+    }
+  }
+
+  function printReceiptPdf() {
+    if (!receiptPdfUrl) {
+      return;
+    }
+    const previewWindow = window.open(receiptPdfUrl, "_blank", "noopener,noreferrer");
+    previewWindow?.addEventListener("load", () => previewWindow.print(), { once: true });
+  }
+
+  async function previewSupplierPayment(payment: PurchaseReceiptAllocationResponse) {
+    if (!token) {
+      return;
+    }
+
+    setPaymentPreviewLoadingId(payment.supplierPaymentId);
+    setReceiptPdfError("");
+
+    try {
+      const pdfBlob = await fetchSupplierPaymentPdf(token, payment.supplierPaymentId);
+      if (receiptPdfUrl) {
+        URL.revokeObjectURL(receiptPdfUrl);
+      }
+      setReceiptPdfUrl(URL.createObjectURL(pdfBlob));
+      setActivePdfLabel(`supplier payment ${payment.paymentNumber}`);
+    } catch (err) {
+      setReceiptPdfError(err instanceof Error ? err.message : "Failed to load supplier payment PDF.");
+    } finally {
+      setPaymentPreviewLoadingId(null);
+    }
+  }
+
+  function printSupplierPayment(payment: PurchaseReceiptAllocationResponse) {
+    if (activePdfLabel === `supplier payment ${payment.paymentNumber}` && receiptPdfUrl) {
+      const previewWindow = window.open(receiptPdfUrl, "_blank", "noopener,noreferrer");
+      previewWindow?.addEventListener("load", () => previewWindow.print(), { once: true });
+      return;
+    }
+
+    void (async () => {
+      if (!token) {
+        return;
+      }
+      setPaymentPreviewLoadingId(payment.supplierPaymentId);
+      setReceiptPdfError("");
+      try {
+        const pdfBlob = await fetchSupplierPaymentPdf(token, payment.supplierPaymentId);
+        if (receiptPdfUrl) {
+          URL.revokeObjectURL(receiptPdfUrl);
+        }
+        const nextPdfUrl = URL.createObjectURL(pdfBlob);
+        setReceiptPdfUrl(nextPdfUrl);
+        setActivePdfLabel(`supplier payment ${payment.paymentNumber}`);
+        const previewWindow = window.open(nextPdfUrl, "_blank", "noopener,noreferrer");
+        previewWindow?.addEventListener("load", () => previewWindow.print(), { once: true });
+      } catch (err) {
+        setReceiptPdfError(err instanceof Error ? err.message : "Failed to load supplier payment PDF.");
+      } finally {
+        setPaymentPreviewLoadingId(null);
+      }
+    })();
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -219,23 +348,55 @@ export function PurchaseReceipts() {
               Place of supply: <span className="font-medium text-slate-950">{selectedSupplier?.stateCode || "Derived when supplier has a state code"}</span>
             </div>
             {selectedOrderDetail ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Receiving against PO <span className="font-medium">{selectedOrderDetail.poNumber}</span>. The backend will post inventory movements for the received lines.</div> : null}
-            {lines.map((line, index) => (
-              <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1.4fr)_90px_110px_40px]">
-                <select value={line.supplierProductId} onChange={(e) => {
-                  const supplierProduct = supplierCatalogProducts.find((item) => item.supplierProductId === Number(e.target.value));
-                  const product = products.find((item) => item.id === supplierProduct?.storeProductId);
-                  updateLine(index, "supplierProductId", e.target.value);
-                  updateLine(index, "productId", String(supplierProduct?.storeProductId ?? ""));
-                  updateLine(index, "uomId", product ? String(product.baseUomId) : "");
-                }} className="crm-select" disabled={Boolean(purchaseOrderId)}>
-                  <option value="">Select supplier product</option>
-                  {supplierCatalogProducts.map((product) => <option key={product.supplierProductId} value={product.supplierProductId}>{product.supplierProductName || product.name} ({product.supplierProductCode || product.sku})</option>)}
-                </select>
-                <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" placeholder="Qty" />
-                <input value={line.unitCost} onChange={(e) => updateLine(index, "unitCost", e.target.value)} type="number" min="0" step="0.01" className="crm-field" placeholder="Cost" />
-                <button type="button" onClick={() => setLines((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><Trash2 className="h-4 w-4" /></button>
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <div className="hidden grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] gap-3 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+                <div>Supplier Product</div>
+                <div>Qty</div>
+                <div>Cost</div>
+                <div>Amount</div>
+                <div>Action</div>
               </div>
-            ))}
+              <div className="divide-y divide-slate-200 bg-white">
+                {lines.map((line, index) => {
+                  const lineAmount = (Number(line.quantity) || 0) * (Number(line.unitCost) || 0);
+
+                  return (
+                    <div key={index} className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] lg:items-center">
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Supplier Product</div>
+                        <select value={line.supplierProductId} onChange={(e) => {
+                          const supplierProduct = supplierCatalogProducts.find((item) => item.supplierProductId === Number(e.target.value));
+                          const product = products.find((item) => item.id === supplierProduct?.storeProductId);
+                          updateLine(index, "supplierProductId", e.target.value);
+                          updateLine(index, "productId", String(supplierProduct?.storeProductId ?? ""));
+                          updateLine(index, "uomId", product ? String(product.baseUomId) : "");
+                        }} className="crm-select" disabled={Boolean(purchaseOrderId)}>
+                          <option value="">Select supplier product</option>
+                          {supplierCatalogProducts.map((product) => <option key={product.supplierProductId} value={product.supplierProductId}>{product.supplierProductName || product.name} ({product.supplierProductCode || product.sku})</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Qty</div>
+                        <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" placeholder="Qty" />
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Cost</div>
+                        <input value={line.unitCost} onChange={(e) => updateLine(index, "unitCost", e.target.value)} type="number" min="0" step="0.01" className="crm-field" placeholder="Cost" />
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Amount</div>
+                        <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-900">
+                          {formatCurrency(lineAmount)}
+                        </div>
+                      </div>
+                      <div className="flex justify-end lg:justify-center">
+                        <button type="button" onClick={() => setLines((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <button type="button" onClick={() => setLines((current) => [...current, { productId: "", supplierProductId: "", quantity: "1", unitCost: "" }])} disabled={Boolean(purchaseOrderId)} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700 disabled:opacity-50"><CirclePlus className="h-4 w-4" />Add line</button>
             <input value={remarks} onChange={(e) => setRemarks(e.target.value)} className="crm-field" placeholder="Remarks" />
             {(error || successMessage) && <div className="space-y-3">{error && <div className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"><AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" /><span>{error}</span></div>}{successMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</div>}</div>}
@@ -244,9 +405,123 @@ export function PurchaseReceipts() {
         </form>
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search receipt number or status" className="crm-field pl-11" /></div>
-          <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200"><div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid"><div>Receipt</div><div>Date</div><div>Total</div><div>Status</div></div><div className="divide-y divide-slate-200">{isLoading ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase receipts...</div> : filteredReceipts.length > 0 ? filteredReceipts.map((receipt) => <div key={receipt.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr] lg:items-center"><div><div className="text-base font-semibold text-slate-950">{receipt.receiptNumber}</div><div className="mt-1 text-sm text-slate-500">Supplier #{receipt.supplierId}</div></div><div className="text-sm text-slate-600">{new Date(receipt.receiptDate).toLocaleDateString("en-IN")}</div><div className="text-sm font-medium text-slate-900">{formatCurrency(receipt.totalAmount)}</div><div><span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{receipt.status}</span></div></div>) : <div className="px-6 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><ReceiptText className="h-6 w-6" /></div><h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase receipts yet</h2></div>}</div></div>
+          <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200"><div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.9fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid"><div>Receipt</div><div>Date</div><div>Total</div><div>Status</div><div>Action</div></div><div className="divide-y divide-slate-200">{isLoading ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase receipts...</div> : filteredReceipts.length > 0 ? filteredReceipts.map((receipt) => <div key={receipt.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.9fr] lg:items-center"><div><div className="text-base font-semibold text-slate-950">{receipt.receiptNumber}</div><div className="mt-1 text-sm text-slate-500">Supplier #{receipt.supplierId}</div></div><div className="text-sm text-slate-600">{new Date(receipt.receiptDate).toLocaleDateString("en-IN")}</div><div className="text-sm font-medium text-slate-900">{formatCurrency(receipt.totalAmount)}</div><div><span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{receipt.status}</span></div><div><button type="button" onClick={() => void openReceiptDetails(receipt.id)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100">View details</button></div></div>) : <div className="px-6 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><ReceiptText className="h-6 w-6" /></div><h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase receipts yet</h2></div>}</div></div>
         </section>
       </section>
+
+      <DocumentDetailsDialog
+        open={selectedReceiptId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (receiptPdfUrl) {
+              URL.revokeObjectURL(receiptPdfUrl);
+            }
+            setSelectedReceiptId(null);
+            setSelectedReceipt(null);
+            setReceiptPdfUrl(null);
+            setReceiptPdfError("");
+            setActivePdfLabel("");
+          }
+        }}
+        title={selectedReceipt?.receiptNumber ?? "Purchase receipt details"}
+        description="Purchase receipt details and linked supplier payments from the ERP purchase receipt endpoint."
+        loading={isDetailsLoading}
+        rows={[
+          { label: "Supplier", value: selectedReceipt?.supplierId ? `Supplier #${selectedReceipt.supplierId}` : "-" },
+          { label: "Receipt Date", value: formatDate(selectedReceipt?.receiptDate) },
+          { label: "Due Date", value: formatDate(selectedReceipt?.dueDate) },
+          { label: "Warehouse", value: selectedReceipt?.warehouseId ? `Warehouse #${selectedReceipt.warehouseId}` : "-" },
+          { label: "Status", value: selectedReceipt?.status ?? "-" },
+          { label: "Subtotal", value: formatDocumentCurrency(selectedReceipt?.subtotal) },
+          { label: "Tax", value: formatDocumentCurrency(selectedReceipt?.taxAmount) },
+          { label: "Total", value: formatDocumentCurrency(selectedReceipt?.totalAmount) },
+          { label: "Allocated", value: formatDocumentCurrency(selectedReceipt?.allocatedAmount) },
+          { label: "Outstanding", value: formatDocumentCurrency(selectedReceipt?.outstandingAmount) },
+        ]}
+        lines={(selectedReceipt?.lines ?? []).map((line) => ({
+          id: line.id,
+          productId: line.productId,
+          quantity: line.quantity,
+          unitPrice: line.unitValue,
+          lineAmount: line.lineAmount,
+          remarks: line.supplierProductCode ?? line.productName ?? null,
+        }))}
+        pdfUrl={receiptPdfUrl}
+        pdfLoading={isReceiptPdfLoading}
+        pdfError={receiptPdfError}
+        onLoadPdf={() => void loadReceiptPdf()}
+        onPrintPdf={printReceiptPdf}
+        pdfLabel={activePdfLabel}
+      >
+        {selectedReceipt ? (
+          <div className="rounded-3xl border border-slate-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Linked Supplier Payments
+                </div>
+                <div className="mt-1 text-sm text-slate-600">
+                  Review all supplier payments allocated to this purchase receipt and print any payment document directly from here.
+                </div>
+              </div>
+              <div className="rounded-2xl bg-slate-100 px-3 py-2 text-right">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Payment Coverage
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-950">
+                  {formatDocumentCurrency(selectedReceipt.allocatedAmount)} / {formatDocumentCurrency(selectedReceipt.totalAmount)}
+                </div>
+              </div>
+            </div>
+
+            {(selectedReceipt.allocations ?? []).length > 0 ? (
+              <div className="mt-4 space-y-3">
+                {(selectedReceipt.allocations ?? []).map((payment) => (
+                  <div
+                    key={payment.supplierPaymentId}
+                    className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-slate-950">{payment.paymentNumber}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {formatDate(payment.paymentDate)} · {payment.paymentMethod} · Payment {formatDocumentCurrency(payment.paymentAmount)}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Allocated to this receipt: {formatDocumentCurrency(payment.allocatedAmount)}
+                      </div>
+                      {payment.referenceNumber ? (
+                        <div className="mt-1 text-xs text-slate-500">Reference: {payment.referenceNumber}</div>
+                      ) : null}
+                      <div className="mt-1 text-xs text-slate-500">Status: {payment.status}</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void previewSupplierPayment(payment)}
+                        disabled={paymentPreviewLoadingId === payment.supplierPaymentId}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {paymentPreviewLoadingId === payment.supplierPaymentId ? "Loading..." : "View payment"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => printSupplierPayment(payment)}
+                        className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800"
+                      >
+                        Print payment
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                No supplier payments are allocated to this purchase receipt yet.
+              </div>
+            )}
+          </div>
+        ) : null}
+      </DocumentDetailsDialog>
     </div>
   );
 }

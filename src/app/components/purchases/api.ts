@@ -1,4 +1,4 @@
-import { apiRequest, createIdempotencyKey } from "../../lib/api";
+import { apiBinaryRequest, apiRequest, createIdempotencyKey } from "../../lib/api";
 
 interface ErpApiResponse<T> {
   success: boolean;
@@ -64,6 +64,18 @@ export interface PurchaseReceiptDetailResponse extends PurchaseReceiptSummaryRes
   supplierGstin: string | null;
   placeOfSupplyStateCode: string | null;
   lines: PurchaseReceiptLineResponse[];
+  allocations: PurchaseReceiptAllocationResponse[];
+}
+
+export interface PurchaseReceiptAllocationResponse {
+  supplierPaymentId: number;
+  paymentNumber: string;
+  paymentDate: string;
+  paymentMethod: string;
+  referenceNumber: string | null;
+  paymentAmount: number;
+  allocatedAmount: number;
+  status: string;
 }
 
 export interface PurchaseOrderSummaryResponse {
@@ -137,6 +149,44 @@ export interface SupplierCatalogResponse {
   products: PurchasableStoreProductResponse[];
 }
 
+export interface SupplierProductResponse {
+  id: number;
+  organizationId: number;
+  supplierId: number;
+  productId: number;
+  supplierProductCode: string | null;
+  supplierProductName: string | null;
+  priority: number | null;
+  isPreferred: boolean | null;
+  isActive: boolean | null;
+}
+
+export interface SupplierProductRequestPayload {
+  productId: number;
+  supplierProductCode?: string;
+  supplierProductName?: string;
+  priority?: number;
+  isPreferred?: boolean;
+  isActive?: boolean;
+}
+
+export interface StoreProductSupplierPreferenceResponse {
+  id: number;
+  organizationId: number;
+  storeProductId: number;
+  supplierId: number;
+  supplierProductId: number;
+  isActive: boolean | null;
+  remarks: string | null;
+}
+
+export interface StoreProductSupplierPreferencePayload {
+  supplierId: number;
+  supplierProductId: number;
+  isActive?: boolean;
+  remarks?: string;
+}
+
 export interface PurchaseReturnSummaryResponse {
   id: number;
   supplierId: number;
@@ -159,6 +209,50 @@ export interface SupplierPaymentResponse {
   amount: number;
   status: string;
   remarks: string | null;
+}
+
+export interface ExpenseCategoryResponse {
+  id: number;
+  organizationId: number;
+  code: string;
+  name: string;
+  expenseAccountId: number | null;
+  isActive: boolean;
+}
+
+export interface ExpenseResponse {
+  id: number;
+  organizationId: number;
+  branchId: number | null;
+  expenseCategoryId: number;
+  expenseNumber: string;
+  expenseDate: string;
+  dueDate: string | null;
+  amount: number;
+  outstandingAmount: number | null;
+  status: string;
+  paymentMethod: string | null;
+  receiptUrl: string | null;
+  remarks: string | null;
+}
+
+export interface CreateExpensePayload {
+  organizationId: number;
+  branchId?: number;
+  expenseCategoryId: number;
+  expenseDate?: string;
+  dueDate?: string;
+  amount: number;
+  paymentMethod?: string;
+  receiptUrl?: string;
+  remarks?: string;
+  markPaid?: boolean;
+}
+
+export interface PayExpensePayload {
+  paymentMethod: string;
+  paidDate?: string;
+  remarks?: string;
 }
 
 export interface SupplierPaymentRequestPayload {
@@ -264,6 +358,13 @@ export async function fetchPurchaseReceipt(token: string, receiptId: number) {
   return erpRequest<PurchaseReceiptDetailResponse>(`/api/erp/purchases/receipts/${receiptId}`, token);
 }
 
+export async function fetchPurchaseReceiptPdf(token: string, receiptId: number) {
+  return apiBinaryRequest(`/api/erp/purchases/receipts/${receiptId}/pdf`, {
+    token,
+    method: "GET",
+  });
+}
+
 export async function fetchPurchaseOrders(token: string, organizationId: number) {
   return erpRequest<PurchaseOrderSummaryResponse[]>(
     `/api/erp/purchases/orders?organizationId=${organizationId}`,
@@ -283,6 +384,70 @@ export async function fetchSupplierCatalog(
   return erpRequest<SupplierCatalogResponse>(
     `/api/erp/suppliers/${supplierId}/catalog?organizationId=${organizationId}`,
     token,
+  );
+}
+
+export async function fetchSupplierProducts(
+  token: string,
+  organizationId: number,
+  supplierId: number,
+) {
+  return erpRequest<SupplierProductResponse[]>(
+    `/api/erp/suppliers/${supplierId}/products?organizationId=${organizationId}`,
+    token,
+  );
+}
+
+export async function createSupplierProduct(
+  token: string,
+  organizationId: number,
+  supplierId: number,
+  payload: SupplierProductRequestPayload,
+) {
+  return erpRequest<SupplierProductResponse>(
+    `/api/erp/suppliers/${supplierId}/products?organizationId=${organizationId}`,
+    token,
+    {
+      method: "POST",
+      idempotencyKey: createIdempotencyKey("erp-supplier-product:create", {
+        organizationId,
+        supplierId,
+        payload,
+      }),
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function fetchStoreProductSupplierPreference(
+  token: string,
+  organizationId: number,
+  storeProductId: number,
+) {
+  return erpRequest<StoreProductSupplierPreferenceResponse>(
+    `/api/erp/suppliers/product-preferences/${storeProductId}?organizationId=${organizationId}`,
+    token,
+  );
+}
+
+export async function upsertStoreProductSupplierPreference(
+  token: string,
+  organizationId: number,
+  storeProductId: number,
+  payload: StoreProductSupplierPreferencePayload,
+) {
+  return erpRequest<StoreProductSupplierPreferenceResponse>(
+    `/api/erp/suppliers/product-preferences/${storeProductId}?organizationId=${organizationId}`,
+    token,
+    {
+      method: "PUT",
+      idempotencyKey: createIdempotencyKey("erp-store-product-supplier-preference:upsert", {
+        organizationId,
+        storeProductId,
+        payload,
+      }),
+      body: JSON.stringify(payload),
+    },
   );
 }
 
@@ -307,6 +472,13 @@ export async function fetchSupplierPayments(token: string, organizationId: numbe
     `/api/erp/purchases/supplier-payments?organizationId=${organizationId}`,
     token,
   );
+}
+
+export async function fetchSupplierPaymentPdf(token: string, paymentId: number) {
+  return apiBinaryRequest(`/api/erp/purchases/supplier-payments/${paymentId}/pdf`, {
+    token,
+    method: "GET",
+  });
 }
 
 export async function fetchPurchaseReturns(token: string, organizationId: number) {
@@ -353,4 +525,34 @@ export async function allocateSupplierPayment(
       }),
     },
   );
+}
+
+export async function fetchExpenseCategories(token: string, organizationId: number) {
+  return erpRequest<ExpenseCategoryResponse[]>(
+    `/api/erp/expenses/categories?organizationId=${organizationId}`,
+    token,
+  );
+}
+
+export async function fetchExpenses(token: string, organizationId: number) {
+  return erpRequest<ExpenseResponse[]>(
+    `/api/erp/expenses?organizationId=${organizationId}`,
+    token,
+  );
+}
+
+export async function createExpense(token: string, payload: CreateExpensePayload) {
+  return erpRequest<ExpenseResponse>("/api/erp/expenses", token, {
+    method: "POST",
+    idempotencyKey: createIdempotencyKey("erp-expense:create", payload),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function payExpense(token: string, expenseId: number, payload: PayExpensePayload) {
+  return erpRequest<ExpenseResponse>(`/api/erp/expenses/${expenseId}/pay`, token, {
+    method: "POST",
+    idempotencyKey: createIdempotencyKey("erp-expense:pay", { expenseId, payload }),
+    body: JSON.stringify(payload),
+  });
 }

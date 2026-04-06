@@ -3,19 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import {
   createReceipt,
+  fetchReceiptPdf,
   fetchReceipts,
   fetchSalesCustomers,
   type CustomerReceiptResponse,
   type SalesCustomerSummary,
 } from "./api";
-
-function formatCurrency(value: number | null | undefined) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2,
-  }).format(value ?? 0);
-}
+import { DocumentDetailsDialog, formatCurrency, formatDate } from "./DocumentDetailsDialog";
 
 export function PaymentsReceived() {
   const { token, user } = useAuth();
@@ -30,8 +24,21 @@ export function PaymentsReceived() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState<CustomerReceiptResponse | null>(null);
+  const [receiptPdfUrl, setReceiptPdfUrl] = useState<string | null>(null);
+  const [isReceiptPdfLoading, setIsReceiptPdfLoading] = useState(false);
+  const [receiptPdfError, setReceiptPdfError] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(
+    () => () => {
+      if (receiptPdfUrl) {
+        URL.revokeObjectURL(receiptPdfUrl);
+      }
+    },
+    [receiptPdfUrl],
+  );
 
   useEffect(() => {
     async function loadData() {
@@ -126,6 +133,36 @@ export function PaymentsReceived() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function loadReceiptPdf() {
+    if (!token || !selectedReceipt) {
+      return;
+    }
+
+    setIsReceiptPdfLoading(true);
+    setReceiptPdfError("");
+
+    try {
+      const pdfBlob = await fetchReceiptPdf(token, selectedReceipt.id);
+      if (receiptPdfUrl) {
+        URL.revokeObjectURL(receiptPdfUrl);
+      }
+      setReceiptPdfUrl(URL.createObjectURL(pdfBlob));
+    } catch (err) {
+      setReceiptPdfError(err instanceof Error ? err.message : "Failed to load receipt PDF.");
+    } finally {
+      setIsReceiptPdfLoading(false);
+    }
+  }
+
+  function printReceiptPdf() {
+    if (!receiptPdfUrl) {
+      return;
+    }
+
+    const previewWindow = window.open(receiptPdfUrl, "_blank", "noopener,noreferrer");
+    previewWindow?.addEventListener("load", () => previewWindow.print(), { once: true });
   }
 
   return (
@@ -246,11 +283,12 @@ export function PaymentsReceived() {
           </div>
 
           <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-            <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+            <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
               <div>Receipt</div>
               <div>Date</div>
               <div>Amount</div>
               <div>Status</div>
+              <div>Action</div>
             </div>
 
             <div className="divide-y divide-slate-200">
@@ -258,7 +296,7 @@ export function PaymentsReceived() {
                 <div className="px-6 py-16 text-center text-sm text-slate-500">Loading receipts...</div>
               ) : filteredReceipts.length > 0 ? (
                 filteredReceipts.map((receipt) => (
-                  <div key={receipt.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr] lg:items-center">
+                  <div key={receipt.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] lg:items-center">
                     <div>
                       <div className="text-base font-semibold text-slate-950">{receipt.receiptNumber}</div>
                       <div className="mt-1 text-sm text-slate-500">Customer #{receipt.customerId}</div>
@@ -267,6 +305,22 @@ export function PaymentsReceived() {
                     <div className="text-sm font-medium text-slate-900">{formatCurrency(receipt.amount)}</div>
                     <div>
                       <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{receipt.status}</span>
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (receiptPdfUrl) {
+                            URL.revokeObjectURL(receiptPdfUrl);
+                            setReceiptPdfUrl(null);
+                          }
+                          setReceiptPdfError("");
+                          setSelectedReceipt(receipt);
+                        }}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        View details
+                      </button>
                     </div>
                   </div>
                 ))
@@ -277,6 +331,36 @@ export function PaymentsReceived() {
           </div>
         </section>
       </section>
+
+      <DocumentDetailsDialog
+        open={selectedReceipt !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (receiptPdfUrl) {
+              URL.revokeObjectURL(receiptPdfUrl);
+            }
+            setSelectedReceipt(null);
+            setReceiptPdfUrl(null);
+            setReceiptPdfError("");
+          }
+        }}
+        title={selectedReceipt?.receiptNumber ?? "Receipt details"}
+        description="Customer receipt details from the ERP receipts register."
+        rows={[
+          { label: "Customer", value: selectedReceipt?.customerId ? `Customer #${selectedReceipt.customerId}` : "-" },
+          { label: "Receipt Date", value: formatDate(selectedReceipt?.receiptDate) },
+          { label: "Payment Method", value: selectedReceipt?.paymentMethod ?? "-" },
+          { label: "Amount", value: formatCurrency(selectedReceipt?.amount) },
+          { label: "Reference", value: selectedReceipt?.referenceNumber ?? "-" },
+          { label: "Status", value: selectedReceipt?.status ?? "-" },
+          { label: "Remarks", value: selectedReceipt?.remarks ?? "-" },
+        ]}
+        pdfUrl={receiptPdfUrl}
+        pdfLoading={isReceiptPdfLoading}
+        pdfError={receiptPdfError}
+        onLoadPdf={() => void loadReceiptPdf()}
+        onPrintPdf={printReceiptPdf}
+      />
     </div>
   );
 }

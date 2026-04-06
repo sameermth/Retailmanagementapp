@@ -162,21 +162,53 @@ export function PurchaseOrders() {
               {" · "}
               Place of supply: <span className="font-medium text-slate-950">{selectedSupplier?.stateCode || "Derived when supplier has a state code"}</span>
             </div>
-            {lines.map((line, index) => (
-              <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1.4fr)_90px_110px_40px]">
-                <select value={line.supplierProductId} onChange={(e) => {
-                  const supplierProduct = supplierCatalogProducts.find((item) => item.supplierProductId === Number(e.target.value));
-                  updateLine(index, "supplierProductId", e.target.value);
-                  updateLine(index, "productId", String(supplierProduct?.storeProductId ?? ""));
-                }} className="crm-select">
-                  <option value="">Select supplier product</option>
-                  {supplierCatalogProducts.map((product) => <option key={product.supplierProductId} value={product.supplierProductId}>{product.supplierProductName || product.name} ({product.supplierProductCode || product.sku})</option>)}
-                </select>
-                <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" placeholder="Qty" />
-                <input value={line.unitPrice} onChange={(e) => updateLine(index, "unitPrice", e.target.value)} type="number" min="0" step="0.01" className="crm-field" placeholder="Cost" />
-                <button type="button" onClick={() => setLines((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-500"><Trash2 className="h-4 w-4" /></button>
+            <div className="overflow-hidden rounded-2xl border border-slate-200">
+              <div className="hidden grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] gap-3 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+                <div>Supplier Product</div>
+                <div>Qty</div>
+                <div>Cost</div>
+                <div>Amount</div>
+                <div>Action</div>
               </div>
-            ))}
+              <div className="divide-y divide-slate-200 bg-white">
+                {lines.map((line, index) => {
+                  const lineAmount = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
+
+                  return (
+                    <div key={index} className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.8fr)_110px_140px_140px_54px] lg:items-center">
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Supplier Product</div>
+                        <select value={line.supplierProductId} onChange={(e) => {
+                          const supplierProduct = supplierCatalogProducts.find((item) => item.supplierProductId === Number(e.target.value));
+                          updateLine(index, "supplierProductId", e.target.value);
+                          updateLine(index, "productId", String(supplierProduct?.storeProductId ?? ""));
+                        }} className="crm-select">
+                          <option value="">Select supplier product</option>
+                          {supplierCatalogProducts.map((product) => <option key={product.supplierProductId} value={product.supplierProductId}>{product.supplierProductName || product.name} ({product.supplierProductCode || product.sku})</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Qty</div>
+                        <input value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} type="number" min="0" step="0.001" className="crm-field" placeholder="Qty" />
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Cost</div>
+                        <input value={line.unitPrice} onChange={(e) => updateLine(index, "unitPrice", e.target.value)} type="number" min="0" step="0.01" className="crm-field" placeholder="Cost" />
+                      </div>
+                      <div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:hidden">Amount</div>
+                        <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-900">
+                          {formatCurrency(lineAmount)}
+                        </div>
+                      </div>
+                      <div className="flex justify-end lg:justify-center">
+                        <button type="button" onClick={() => setLines((current) => current.length === 1 ? current : current.filter((_, i) => i !== index))} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
             <button type="button" onClick={() => setLines((current) => [...current, { productId: "", supplierProductId: "", quantity: "1", unitPrice: "" }])} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700"><CirclePlus className="h-4 w-4" />Add line</button>
             <input value={remarks} onChange={(e) => setRemarks(e.target.value)} className="crm-field" placeholder="Remarks" />
             {(error || successMessage) && <div className="space-y-3">{error && <div className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"><AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" /><span>{error}</span></div>}{successMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{successMessage}</div>}</div>}

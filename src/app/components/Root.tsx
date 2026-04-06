@@ -27,8 +27,13 @@ function getVisibleSections(
   sections: SidebarSection[],
   canAccess: (feature: NavItem["requiredFeature"]) => boolean,
   hasAnyPermission: (permissions: string[] | null | undefined) => boolean,
+  isPlatformAdmin: boolean,
 ) {
-  return sections
+  const scopedSections = sections.filter((section) =>
+    isPlatformAdmin ? section.id === "platform-admin" : section.id !== "platform-admin",
+  );
+
+  return scopedSections
     .map((section) => {
       const children = section.children?.filter((item) => isItemAllowed(item, canAccess, hasAnyPermission));
       const sectionAllowed =
@@ -49,7 +54,7 @@ function getVisibleSections(
 
 function RouteLoadingFallback() {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-sm text-slate-500 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-7 text-sm text-slate-500 shadow-sm">
       Loading module...
     </div>
   );
@@ -60,10 +65,10 @@ export function Root() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openSectionId, setOpenSectionId] = useState<string | null>(null);
-  const { user, logout, capabilities, canAccess, hasAnyPermission } = useAuth();
+  const { user, logout, capabilities, canAccess, hasAnyPermission, isPlatformAdmin } = useAuth();
   const visibleSections = useMemo(
-    () => getVisibleSections(sidebarSections, canAccess, hasAnyPermission),
-    [canAccess, hasAnyPermission],
+    () => getVisibleSections(sidebarSections, canAccess, hasAnyPermission, isPlatformAdmin),
+    [canAccess, hasAnyPermission, isPlatformAdmin],
   );
   const currentNavItem = findNavItem(location.pathname);
 
@@ -98,17 +103,17 @@ export function Root() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
-        <div className="crm-shell flex items-center gap-4 px-4 py-4 sm:px-6 lg:px-8">
+        <div className="crm-shell flex items-center gap-3 px-3 py-3 sm:px-4 lg:px-6">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileMenuOpen((open) => !open)}
-              className="rounded-xl border border-slate-200 p-2 text-slate-600 lg:hidden"
+              className="rounded-lg border border-slate-200 p-2 text-slate-600 lg:hidden"
             >
               <Menu className="h-5 w-5" />
             </button>
             <button
               onClick={() => setSidebarCollapsed((value) => !value)}
-              className="hidden rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100 lg:inline-flex"
+              className="hidden rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-100 lg:inline-flex"
               aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {sidebarCollapsed ? (
@@ -119,7 +124,9 @@ export function Root() {
             </button>
             <div>
               <div className="text-sm font-semibold text-slate-900">Retail Management</div>
-              <div className="text-xs text-slate-500">Backend-driven ERP workspace</div>
+              <div className="text-xs text-slate-500">
+                {isPlatformAdmin ? "Platform admin workspace" : "Backend-driven ERP workspace"}
+              </div>
             </div>
           </div>
 
@@ -128,12 +135,12 @@ export function Root() {
               {capabilities.plan} · {capabilities.subscriptionStatus}
             </div>
             {user && (
-              <div className="hidden rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-right sm:block">
+              <div className="hidden rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-right sm:block">
                 <div className="text-sm font-medium text-slate-900">
-                  {user.organizationName || user.username}
+                  {isPlatformAdmin ? user.username : user.organizationName || user.username}
                 </div>
                 <div className="text-xs text-slate-500">
-                  {user.defaultBranchId ? `Branch ${user.defaultBranchId} · ` : ""}
+                  {!isPlatformAdmin && user.defaultBranchId ? `Branch ${user.defaultBranchId} · ` : ""}
                   {user.email}
                 </div>
               </div>
@@ -142,7 +149,7 @@ export function Root() {
               onClick={() => {
                 void logout();
               }}
-              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-700 transition hover:bg-slate-100"
             >
               <LogOut className="h-4 w-4" />
               <span>Logout</span>
@@ -151,7 +158,7 @@ export function Root() {
         </div>
 
         {mobileMenuOpen && (
-          <div className="border-t border-slate-200 px-4 py-3 lg:hidden">
+          <div className="border-t border-slate-200 px-3 py-3 lg:hidden">
             <div className="space-y-4">
               {visibleSections.map((section) => {
                 const Icon = section.icon;
@@ -166,7 +173,7 @@ export function Root() {
                       <Link
                         to={section.path}
                         onClick={() => setMobileMenuOpen(false)}
-                        className={`flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-4 py-3 text-sm ${
+                        className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
                           isActiveSection ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"
                         }`}
                       >
@@ -176,14 +183,14 @@ export function Root() {
                       {section.children && section.children.length > 0 && (
                         <button
                           onClick={() => toggleSection(section.id)}
-                          className="rounded-2xl border border-slate-200 bg-white p-3 text-slate-500"
+                          className="rounded-xl border border-slate-200 bg-white p-2.5 text-slate-500"
                         >
                           <ChevronDown className={`h-4 w-4 transition ${isOpen ? "rotate-180" : ""}`} />
                         </button>
                       )}
                     </div>
                     {section.children && section.children.length > 0 && isOpen && (
-                      <div className="mt-2 space-y-2 pl-4">
+                      <div className="mt-1.5 space-y-1.5 pl-3">
                         {section.children.map((item) => {
                           const isActive = location.pathname === item.path;
 
@@ -192,7 +199,7 @@ export function Root() {
                               key={item.path}
                               to={item.path}
                               onClick={() => setMobileMenuOpen(false)}
-                              className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm ${
+                              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
                                 isActive ? "bg-slate-900 text-white" : "bg-slate-50 text-slate-700"
                               }`}
                             >
@@ -212,26 +219,28 @@ export function Root() {
       </header>
 
       <div
-        className={`crm-shell grid gap-6 px-4 py-6 sm:px-6 lg:px-8 ${
+        className={`crm-shell grid gap-4 px-3 py-4 sm:px-4 lg:px-6 ${
           sidebarCollapsed
             ? "lg:grid-cols-[92px_minmax(0,1fr)]"
-            : "lg:grid-cols-[248px_minmax(0,1fr)]"
+            : "lg:grid-cols-[228px_minmax(0,1fr)]"
         }`}
       >
-        <aside className="hidden self-start lg:block">
-          <div className="rounded-2xl border border-slate-200 bg-white p-3">
-            <div className="mb-4 flex items-center justify-between px-2">
+        <aside className="hidden self-start lg:sticky lg:top-[76px] lg:block">
+          <div className="flex max-h-[calc(100vh-92px)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-2.5">
+            <div className="mb-3 flex items-center justify-between px-1.5">
               {!sidebarCollapsed && (
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                    Navigation
+                    {isPlatformAdmin ? "Platform" : "Navigation"}
                   </div>
-                  <div className="mt-1 text-sm text-slate-600">Modules you can access</div>
+                  <div className="mt-1 text-sm text-slate-600">
+                    {isPlatformAdmin ? "Company admin modules" : "Modules you can access"}
+                  </div>
                 </div>
               )}
               <button
                 onClick={() => setSidebarCollapsed((value) => !value)}
-                className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100"
+                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100"
                 aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
                 {sidebarCollapsed ? (
@@ -242,7 +251,7 @@ export function Root() {
               </button>
             </div>
 
-            <nav className="space-y-2">
+            <nav className="space-y-1.5 overflow-y-auto pr-1">
               {visibleSections.map((section) => {
                 const Icon = section.icon;
                 const isOpen = openSectionId === section.id;
@@ -256,7 +265,7 @@ export function Root() {
                       <Link
                         to={section.path}
                         title={sidebarCollapsed ? section.label : undefined}
-                        className={`flex min-w-0 items-center rounded-2xl px-3 py-3 text-sm transition ${
+                        className={`flex min-w-0 items-center rounded-xl px-2.5 py-2.5 text-sm transition ${
                           isActiveSection
                             ? "bg-slate-900 text-white"
                             : "text-slate-700 hover:bg-slate-100"
@@ -268,7 +277,7 @@ export function Root() {
                       {!sidebarCollapsed && section.children && section.children.length > 0 && (
                         <button
                           onClick={() => toggleSection(section.id)}
-                          className="rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                          className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                         >
                           <ChevronDown className={`h-4 w-4 transition ${isOpen ? "rotate-180" : ""}`} />
                         </button>
@@ -276,7 +285,7 @@ export function Root() {
                     </div>
 
                     {!sidebarCollapsed && section.children && section.children.length > 0 && isOpen && (
-                      <div className="mt-2 space-y-1 pl-4">
+                      <div className="mt-1.5 space-y-1 pl-3">
                         {section.children.map((item) => {
                           const isActive = location.pathname === item.path;
 
@@ -284,7 +293,7 @@ export function Root() {
                             <Link
                               key={item.path}
                               to={item.path}
-                              className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition ${
+                              className={`flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm transition ${
                                 isActive
                                   ? "bg-blue-50 font-medium text-blue-700"
                                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
@@ -306,7 +315,7 @@ export function Root() {
 
         <main className="min-w-0">
           {currentNavItem && (
-            <div className="mb-5 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+            <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
               <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                 {currentNavItem.eyebrow}
               </div>

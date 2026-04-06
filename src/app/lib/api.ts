@@ -97,6 +97,27 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return (await response.json()) as T;
 }
 
+export async function apiBinaryRequest(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const { token, headers, body, idempotencyKey, ...rest } = options;
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...rest,
+    headers: {
+      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+      ...headers,
+    },
+    body,
+  });
+
+  if (!response.ok) {
+    return parseError(response);
+  }
+
+  return response.blob();
+}
+
 export function createIdempotencyKey(prefix: string, seed: unknown) {
   const text = typeof seed === "string" ? seed : JSON.stringify(seed);
   let hash = 0;

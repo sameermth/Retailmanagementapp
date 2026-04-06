@@ -1,15 +1,9 @@
-import {
-  ArrowUpRight,
-  BadgeIndianRupee,
-  CircleAlert,
-  Landmark,
-  Link2,
-  RefreshCw,
-  Wallet,
-} from "lucide-react";
-import { useMemo } from "react";
+import { ArrowUpRight, BadgeIndianRupee, CircleAlert, Landmark, Link2, RefreshCw, Wallet } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { readBankingState } from "./demo-banking";
+import { useAuth } from "../../auth";
+import type { AccountResponse } from "../accounting/api";
+import { fetchBankingAccounts, fetchBankReconciliationSummary, fetchCashBankSummary } from "./api";
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -20,22 +14,98 @@ function formatCurrency(value: number) {
 }
 
 export function BankingOverview() {
-  const { accounts, transactions } = readBankingState();
+  const { token, user } = useAuth();
+  const [accounts, setAccounts] = useState<AccountResponse[]>([]);
+  const [summary, setSummary] = useState({
+    totalBalance: 0,
+    incoming: 0,
+    outgoing: 0,
+    reviewCount: 0,
+  });
+  const [reconciliationPreview, setReconciliationPreview] = useState<Array<{
+    id: number;
+    description: string | null;
+    entryDate: string;
+    signedAmount: number | null;
+    status: string;
+    accountId: number;
+  }>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const summary = useMemo(() => {
-    const totalBalance = accounts.reduce((sum, account) => sum + account.balance, 0);
-    const incoming = transactions
-      .filter((transaction) => transaction.type === "incoming")
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-    const outgoing = transactions
-      .filter((transaction) => transaction.type === "outgoing")
-      .reduce((sum, transaction) => sum + transaction.amount, 0);
-    const reviewCount = transactions.filter(
-      (transaction) => transaction.status === "needs-review",
-    ).length;
+  useEffect(() => {
+    async function loadOverview() {
+      if (!token || !user?.organizationId) {
+        return;
+      }
 
-    return { totalBalance, incoming, outgoing, reviewCount };
-  }, [accounts, transactions]);
+      setIsLoading(true);
+      setError("");
+
+      try {
+        const [bankAccounts, cashBankSummary] = await Promise.all([
+          fetchBankingAccounts(token, user.organizationId),
+          fetchCashBankSummary(token, user.organizationId),
+        ]);
+
+        setAccounts(bankAccounts);
+        setSummary({
+          totalBalance: cashBankSummary.netMovement,
+          incoming: cashBankSummary.totalInflow,
+          outgoing: cashBankSummary.totalOutflow,
+          reviewCount: 0,
+        });
+
+        const previewAccount = bankAccounts[0] ?? cashBankSummary.accounts[0];
+        if (previewAccount) {
+          const today = new Date().toISOString().slice(0, 10);
+          const thirtyDaysAgo = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10);
+          const reconciliation = await fetchBankReconciliationSummary(token, user.organizationId, {
+            accountId: previewAccount.id ?? previewAccount.accountId,
+            fromDate: thirtyDaysAgo,
+            toDate: today,
+          });
+
+          setSummary((current) => ({
+            ...current,
+            reviewCount: reconciliation.unmatchedCount,
+          }));
+          setReconciliationPreview(
+            reconciliation.entries.slice(0, 4).map((entry) => ({
+              id: entry.id,
+              description: entry.description,
+              entryDate: entry.entryDate,
+              signedAmount: entry.signedAmount,
+              status: entry.status,
+              accountId: entry.accountId,
+            })),
+          );
+        } else {
+          setReconciliationPreview([]);
+        }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "We could not load banking data.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    void loadOverview();
+  }, [token, user?.organizationId]);
+
+  const accountCards = useMemo(
+    () =>
+      accounts.map((account) => ({
+        id: account.id,
+        name: account.name,
+        institution: account.accountType,
+        accountNumber: account.code,
+        isPrimary: false,
+      })),
+    [accounts],
+  );
 
   return (
     <div className="space-y-6">
@@ -47,9 +117,8 @@ export function BankingOverview() {
             </div>
             <h1 className="mt-3 text-3xl font-semibold text-slate-950">Banking Overview</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              A banking snapshot with linked accounts, reconciliation signals,
-              and recent transaction review. This is still demo-backed because the backend
-              does not expose a banking contract yet.
+              Cash and bank movement summaries, ERP finance accounts, and reconciliation signals
+              from the current backend contract.
             </p>
           </div>
 
@@ -70,6 +139,12 @@ export function BankingOverview() {
             </Link>
           </div>
         </div>
+
+        {error ? (
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : null}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -81,7 +156,7 @@ export function BankingOverview() {
           <div className="mt-4 text-3xl font-semibold text-slate-950">
             {formatCurrency(summary.totalBalance)}
           </div>
-          <div className="mt-2 text-sm text-slate-500">Across bank, cash, and clearing accounts</div>
+          <div className="mt-2 text-sm text-slate-500">Net movement across cash and bank accounts</div>
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -91,7 +166,7 @@ export function BankingOverview() {
           <div className="mt-4 text-3xl font-semibold text-slate-950">
             {formatCurrency(summary.incoming)}
           </div>
-          <div className="mt-2 text-sm text-emerald-600">Recent matched receipts and settlements</div>
+          <div className="mt-2 text-sm text-emerald-600">Cash and bank inflow from the finance summary</div>
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -101,7 +176,7 @@ export function BankingOverview() {
           <div className="mt-4 text-3xl font-semibold text-slate-950">
             {formatCurrency(summary.outgoing)}
           </div>
-          <div className="mt-2 text-sm text-slate-500">Recent vendor payouts and bank charges</div>
+          <div className="mt-2 text-sm text-slate-500">Cash and bank outflow from the finance summary</div>
         </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -109,7 +184,7 @@ export function BankingOverview() {
             Needs Review
           </div>
           <div className="mt-4 text-3xl font-semibold text-slate-950">{summary.reviewCount}</div>
-          <div className="mt-2 text-sm text-slate-500">Transactions waiting for manual reconciliation</div>
+          <div className="mt-2 text-sm text-slate-500">Statement entries still unmatched in reconciliation</div>
         </div>
       </section>
 
@@ -130,7 +205,7 @@ export function BankingOverview() {
             </Link>
           </div>
           <div className="divide-y divide-slate-200">
-            {accounts.map((account) => (
+            {accountCards.map((account) => (
               <div key={account.id} className="flex items-center justify-between gap-4 px-6 py-5">
                 <div className="min-w-0">
                   <div className="flex items-center gap-3">
@@ -149,11 +224,9 @@ export function BankingOverview() {
                 </div>
 
                 <div className="text-right">
-                  <div className="text-lg font-semibold text-slate-950">
-                    {formatCurrency(account.balance)}
-                  </div>
+                  <div className="text-lg font-semibold text-slate-950">{account.accountNumber}</div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {account.isPrimary ? "Primary account" : "Secondary account"}
+                    {account.isPrimary ? "Primary account" : "ERP finance account"}
                   </div>
                 </div>
               </div>
@@ -168,11 +241,11 @@ export function BankingOverview() {
               Sync Status
             </div>
             <div className="mt-4 space-y-4">
-              {accounts.slice(0, 3).map((account) => (
+              {accountCards.slice(0, 3).map((account) => (
                 <div key={account.id} className="rounded-2xl bg-slate-50 px-4 py-3">
                   <div className="text-sm font-medium text-slate-900">{account.name}</div>
                   <div className="mt-1 text-sm text-slate-500">
-                    Last synced {new Date(account.lastSyncedAt).toLocaleString("en-IN")}
+                    Account code {account.accountNumber}
                   </div>
                 </div>
               ))}
@@ -184,33 +257,38 @@ export function BankingOverview() {
               Reconciliation Queue
             </div>
             <div className="mt-4 space-y-3">
-              {transactions.slice(0, 4).map((transaction) => (
+              {reconciliationPreview.map((transaction) => (
                 <div key={transaction.id} className="rounded-2xl border border-slate-200 px-4 py-3">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <div className="text-sm font-medium text-slate-900">
-                        {transaction.description}
+                        {transaction.description || "Statement entry"}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
-                        {transaction.category} · {transaction.date}
+                        Account {transaction.accountId} · {transaction.entryDate}
                       </div>
                     </div>
                     <div className="text-right">
                       <div
                         className={`text-sm font-semibold ${
-                          transaction.type === "incoming"
+                          Number(transaction.signedAmount ?? 0) >= 0
                             ? "text-emerald-600"
                             : "text-rose-600"
                         }`}
                       >
-                        {transaction.type === "incoming" ? "+" : "-"}
-                        {formatCurrency(transaction.amount)}
+                        {Number(transaction.signedAmount ?? 0) >= 0 ? "+" : "-"}
+                        {formatCurrency(Math.abs(Number(transaction.signedAmount ?? 0)))}
                       </div>
                       <div className="mt-1 text-xs text-slate-500">{transaction.status}</div>
                     </div>
                   </div>
                 </div>
               ))}
+              {!isLoading && reconciliationPreview.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-500">
+                  No reconciliation entries are available yet for the selected window.
+                </div>
+              ) : null}
             </div>
           </section>
         </div>

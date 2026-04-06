@@ -35,7 +35,7 @@ export function StockTransfers() {
       try {
         const [productsResponse, warehouseResponse] = await Promise.all([
           fetchStoreProducts(token, user.organizationId),
-          fetchWarehouses(token),
+          fetchWarehouses(token, user.organizationId, user.defaultBranchId ?? undefined),
         ]);
         setProducts(productsResponse.filter((product) => product.isActive));
         setWarehouses(warehouseResponse.filter((warehouse) => warehouse.isActive));

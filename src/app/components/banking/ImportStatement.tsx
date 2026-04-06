@@ -1,7 +1,9 @@
 import { AlertCircle, FileUp, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { importBankStatement, readBankingState } from "./demo-banking";
+import { useAuth } from "../../auth";
+import type { AccountResponse } from "../accounting/api";
+import { importBankStatement, fetchBankingAccounts } from "./api";
 
 const demoRows = [
   {
@@ -29,10 +31,30 @@ const demoRows = [
 
 export function ImportStatement() {
   const navigate = useNavigate();
-  const { accounts } = readBankingState();
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+  const { token, user } = useAuth();
+  const [accounts, setAccounts] = useState<AccountResponse[]>([]);
+  const [accountId, setAccountId] = useState("");
   const [preview, setPreview] = useState(JSON.stringify(demoRows, null, 2));
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    async function loadAccounts() {
+      if (!token || !user?.organizationId) {
+        return;
+      }
+
+      try {
+        const accountResponse = await fetchBankingAccounts(token, user.organizationId);
+        setAccounts(accountResponse);
+        setAccountId((current) => current || String(accountResponse[0]?.id ?? ""));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "We could not load bank accounts.");
+      }
+    }
+
+    void loadAccounts();
+  }, [token, user?.organizationId]);
 
   const parsedCount = useMemo(() => {
     try {
@@ -43,7 +65,7 @@ export function ImportStatement() {
     }
   }, [preview]);
 
-  function handleImport(event: React.FormEvent<HTMLFormElement>) {
+  async function handleImport(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
 
@@ -55,10 +77,35 @@ export function ImportStatement() {
         return;
       }
 
-      importBankStatement({ accountId, rows });
-      navigate("/banking/transactions");
-    } catch {
-      setError("The preview must be valid JSON array data.");
+      if (!token || !user?.organizationId || !accountId) {
+        setError("Choose a bank account before importing.");
+        return;
+      }
+
+      const payloadRows = rows.map((row) => ({
+        entryDate: row.date,
+        valueDate: row.date,
+        description: row.description,
+        referenceNumber: row.category,
+        debitAmount: row.type === "outgoing" ? row.amount : 0,
+        creditAmount: row.type === "incoming" ? row.amount : 0,
+      }));
+
+      const imported = await importBankStatement(token, {
+        organizationId: user.organizationId,
+        branchId: user.defaultBranchId ?? undefined,
+        accountId: Number(accountId),
+        lines: payloadRows,
+      });
+
+      setSuccessMessage(`Imported ${imported.length} statement line${imported.length === 1 ? "" : "s"} successfully.`);
+      navigate("/banking/reconciliation");
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "The preview must be valid JSON array data.",
+      );
     }
   }
 
@@ -70,8 +117,8 @@ export function ImportStatement() {
         </div>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Import Statement</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-          This demo import mirrors a bank-statement workflow without needing a real parser yet.
-          Importing rows sends them into the banking transaction queue as lines that need review.
+          Import bank statement lines into the ERP reconciliation queue using the live
+          bank-reconciliation import endpoint.
         </p>
       </section>
 
@@ -102,7 +149,7 @@ export function ImportStatement() {
               <div className="text-sm font-medium text-slate-900">Rows ready to import</div>
               <div className="mt-2 text-3xl font-semibold text-slate-950">{parsedCount}</div>
               <div className="mt-2 text-sm text-slate-500">
-                Imported lines will begin in the <code>needs-review</code> state.
+                Imported lines will begin in the backend reconciliation queue.
               </div>
             </div>
 
@@ -132,6 +179,12 @@ export function ImportStatement() {
               <span>{error}</span>
             </div>
           )}
+
+          {successMessage ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {successMessage}
+            </div>
+          ) : null}
         </section>
       </form>
     </div>
