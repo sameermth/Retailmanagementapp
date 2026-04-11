@@ -280,7 +280,7 @@ export function ChartOfAccounts() {
           and retiring account structures.
         </p>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
+      <section className="grid gap-6 xl:grid-cols-[520px_minmax(0,1fr)] 2xl:grid-cols-[560px_minmax(0,1fr)]">
         <form onSubmit={handleSubmit} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">

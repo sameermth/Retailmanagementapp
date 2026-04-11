@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
 import {
   allocateReceipt,
   createServiceAgreement,
@@ -286,6 +287,72 @@ export function InvoicesList() {
         { totalAmount: 0, balanceDue: 0 },
       ),
     [filteredInvoices],
+  );
+
+  const invoiceColumns = useMemo<DataTableColumn<SalesInvoiceSummaryResponse>[]>(
+    () => [
+      {
+        key: "invoice",
+        header: "Invoice",
+        value: (invoice) => `${invoice.invoiceNumber} ${invoice.customerId}`,
+        render: (invoice) => (
+          <div>
+            <div className="text-base font-semibold text-slate-950">{invoice.invoiceNumber}</div>
+            <div className="mt-1 text-sm text-slate-500">Customer #{invoice.customerId}</div>
+          </div>
+        ),
+      },
+      {
+        key: "date",
+        header: "Date",
+        value: (invoice) => invoice.invoiceDate,
+        render: (invoice) => (
+          <span className="text-sm text-slate-600">
+            {new Date(invoice.invoiceDate).toLocaleDateString("en-IN")}
+          </span>
+        ),
+      },
+      {
+        key: "total",
+        header: "Total",
+        value: (invoice) => invoice.totalAmount,
+        render: (invoice) => <span className="text-sm font-medium text-slate-900">{formatCurrency(invoice.totalAmount)}</span>,
+      },
+      {
+        key: "outstanding",
+        header: "Outstanding",
+        value: (invoice) => invoice.outstandingAmount,
+        render: (invoice) => (
+          <span className="text-sm font-medium text-slate-900">{formatCurrency(invoice.outstandingAmount)}</span>
+        ),
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (invoice) => invoice.status,
+        render: (invoice) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            {invoice.status}
+          </span>
+        ),
+      },
+      {
+        key: "action",
+        header: "Action",
+        sortable: false,
+        filterable: false,
+        render: (invoice) => (
+          <button
+            type="button"
+            onClick={() => void openDetails(invoice.id)}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            View details
+          </button>
+        ),
+      },
+    ],
+    [openDetails],
   );
 
   async function openDetails(invoiceId: number) {
@@ -713,65 +780,26 @@ export function InvoicesList() {
         )}
 
         <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-          <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
-            <div>Invoice</div>
-            <div>Date</div>
-            <div>Total</div>
-            <div>Outstanding</div>
-            <div>Status</div>
-            <div>Action</div>
-          </div>
-
-          <div className="divide-y divide-slate-200">
-            {isLoading ? (
-              <div className="px-6 py-16 text-center text-sm text-slate-500">Loading invoices...</div>
-            ) : filteredInvoices.length > 0 ? (
-              filteredInvoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.9fr_0.9fr_0.9fr] lg:items-center"
-                >
-                  <div>
-                    <div className="text-base font-semibold text-slate-950">{invoice.invoiceNumber}</div>
-                    <div className="mt-1 text-sm text-slate-500">Customer #{invoice.customerId}</div>
-                  </div>
-                  <div className="text-sm text-slate-600">
-                    {new Date(invoice.invoiceDate).toLocaleDateString("en-IN")}
-                  </div>
-                  <div className="text-sm font-medium text-slate-900">
-                    {formatCurrency(invoice.totalAmount)}
-                  </div>
-                  <div className="text-sm font-medium text-slate-900">
-                    {formatCurrency(invoice.outstandingAmount)}
-                  </div>
-                  <div>
-                    <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                      {invoice.status}
-                    </span>
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => void openDetails(invoice.id)}
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      View details
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="px-6 py-16 text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                  <ReceiptText className="h-6 w-6" />
-                </div>
-                <h2 className="mt-4 text-lg font-semibold text-slate-950">No invoices yet</h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  Create the first invoice using the ERP sales invoice flow.
-                </p>
+          {isLoading ? (
+            <div className="px-6 py-16 text-center text-sm text-slate-500">Loading invoices...</div>
+          ) : filteredInvoices.length > 0 ? (
+            <DataTable
+              columns={invoiceColumns}
+              rows={filteredInvoices}
+              rowKey={(invoice) => invoice.id}
+              className="overflow-x-auto"
+            />
+          ) : (
+            <div className="px-6 py-16 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                <ReceiptText className="h-6 w-6" />
               </div>
-            )}
-          </div>
+              <h2 className="mt-4 text-lg font-semibold text-slate-950">No invoices yet</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Create the first invoice using the ERP sales invoice flow.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

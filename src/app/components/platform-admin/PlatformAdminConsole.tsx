@@ -2,6 +2,7 @@ import { AlertCircle, BellRing, Building2, CirclePlus, FileBarChart, LifeBuoy, S
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "../../auth";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
 import { fetchBranches, fetchEmployeeRoles, type BranchResponse, type RoleReferenceResponse } from "../settings/api";
 import {
   assignPlatformSupportTicket,
@@ -10,6 +11,7 @@ import {
   closePlatformSupportTicket,
   createPlatformPlan,
   createPlatformStore,
+  fetchPlatformOwnerAccounts,
   fetchPlatformAuditActivity,
   fetchPlatformFeedback,
   fetchPlatformNotifications,
@@ -34,6 +36,7 @@ import {
   type PlatformAuditActivityResponse,
   type PlatformFeedbackResponse,
   type PlatformNotificationResponse,
+  type PlatformOwnerAccountReferenceResponse,
   type PlatformOverviewResponse,
   type PlatformReportsResponse,
   type PlatformStoreResponse,
@@ -223,6 +226,7 @@ function SearchablePicker({
   onSearchChange,
   onValueChange,
 }: SearchablePickerProps) {
+  const [isOpen, setIsOpen] = useState(false);
   const normalizedSearch = search.trim().toLowerCase();
   const filteredOptions = options.filter((option) =>
     normalizedSearch.length === 0
@@ -232,54 +236,65 @@ function SearchablePicker({
   );
 
   return (
-    <div>
+    <div
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setIsOpen(false);
+        }
+      }}
+    >
       <div className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</div>
       <div className={`overflow-hidden rounded-xl border bg-white ${disabled ? "border-slate-100 opacity-60" : "border-slate-200"}`}>
-        <div className="relative border-b border-slate-200">
+        <div className={`relative ${isOpen ? "border-b border-slate-200" : ""}`}>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
+            onFocus={() => setIsOpen(true)}
             placeholder={placeholder}
             disabled={disabled}
             className="w-full border-0 bg-transparent py-2.5 pl-9 pr-3 text-sm text-slate-900 outline-none disabled:cursor-not-allowed"
           />
         </div>
-        <div className="max-h-44 overflow-y-auto p-2">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => {
-              onValueChange("");
-              onSearchChange("");
-            }}
-            className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm transition ${
-              value === "" ? "bg-slate-950 text-white" : "text-slate-700 hover:bg-slate-100"
-            }`}
-          >
-            Clear selection
-          </button>
-          {filteredOptions.length > 0 ? (
-            filteredOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  onValueChange(option.value);
-                  onSearchChange(option.label);
-                }}
-                className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm transition ${
-                  value === option.value ? "bg-slate-950 text-white" : "text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                {option.label}
-              </button>
-            ))
-          ) : (
-            <div className="px-3 py-2 text-sm text-slate-500">No matches found.</div>
-          )}
-        </div>
+        {isOpen ? (
+          <div className="max-h-44 overflow-y-auto p-2">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                onValueChange("");
+                onSearchChange("");
+                setIsOpen(false);
+              }}
+              className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                value === "" ? "bg-slate-950 text-white" : "text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              Clear selection
+            </button>
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    onValueChange(option.value);
+                    onSearchChange(option.label);
+                    setIsOpen(false);
+                  }}
+                  className={`mb-1 w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                    value === option.value ? "bg-slate-950 text-white" : "text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-sm text-slate-500">No matches found.</div>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -339,6 +354,18 @@ function subscriptionFormFromResponse(subscription: PlatformSubscriptionResponse
     autoRenew: subscription.autoRenew ?? true,
     notes: "",
   };
+}
+
+function subscriptionStoreLabel(subscription: PlatformSubscriptionResponse) {
+  return `${subscription.organizationName} (${subscription.organizationCode})`;
+}
+
+function teamMemberLabel(member: PlatformTeamMemberSummaryResponse) {
+  return `${member.fullName} (${member.username})`;
+}
+
+function supportItemLabel(item: PlatformSupportItemResponse) {
+  return `${item.referenceNumber ?? `#${item.referenceId}`} · ${item.organizationName}`;
 }
 
 function emptyCancelSubscriptionForm(): CancelSubscriptionFormState {
@@ -471,10 +498,16 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
 
   const [roleOptions, setRoleOptions] = useState<RoleReferenceResponse[]>([]);
   const [branchOptions, setBranchOptions] = useState<BranchResponse[]>([]);
+  const [ownerAccounts, setOwnerAccounts] = useState<PlatformOwnerAccountReferenceResponse[]>([]);
   const [roleSearch, setRoleSearch] = useState("");
   const [defaultBranchSearch, setDefaultBranchSearch] = useState("");
   const [planSearch, setPlanSearch] = useState("");
   const [supportAssigneeSearch, setSupportAssigneeSearch] = useState("");
+  const [ownerAccountSearch, setOwnerAccountSearch] = useState("");
+  const [subscriptionStoreSearch, setSubscriptionStoreSearch] = useState("");
+  const [cancelSubscriptionStoreSearch, setCancelSubscriptionStoreSearch] = useState("");
+  const [teamMemberSearch, setTeamMemberSearch] = useState("");
+  const [supportItemSearch, setSupportItemSearch] = useState("");
 
   const planPickerOptions = useMemo(
     () => plans.map((plan) => ({ value: plan.code, label: `${plan.name} (${plan.code})` })),
@@ -503,6 +536,399 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
   const branchPickerOptions = useMemo(
     () => branchOptions.map((branch) => ({ value: String(branch.id), label: `${branch.name} (${branch.code})` })),
     [branchOptions],
+  );
+
+  const ownerAccountPickerOptions = useMemo(
+    () =>
+      ownerAccounts
+        .filter((account) => account.active !== false)
+        .map((account) => ({
+          value: String(account.accountId),
+          label: account.fullName?.trim()
+            ? `${account.fullName} (${account.loginIdentifier})`
+            : account.loginIdentifier,
+        })),
+    [ownerAccounts],
+  );
+
+  const storeColumns = useMemo<DataTableColumn<PlatformStoreResponse>[]>(
+    () => [
+      {
+        key: "store",
+        header: "Store",
+        value: (store) => `${store.organizationName ?? ""} ${store.organizationCode ?? ""}`,
+        render: (store) => (
+          <div>
+            <div className="font-medium text-slate-900">{store.organizationName}</div>
+            <div className="text-xs text-slate-500">{store.organizationCode}</div>
+          </div>
+        ),
+      },
+      {
+        key: "plan",
+        header: "Plan",
+        value: (store) => store.currentPlanName ?? "No plan",
+        render: (store) => <span className="text-slate-700">{store.currentPlanName ?? "No plan"}</span>,
+      },
+      {
+        key: "team",
+        header: "Team",
+        value: (store) => store.teamCount,
+        render: (store) => <span className="text-slate-700">{store.teamCount} users</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (store) => (store.active ? "Active" : "Inactive"),
+        render: (store) => (
+          <span
+            className={`rounded-full px-2 py-1 text-xs font-semibold ${
+              store.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {store.active ? "Active" : "Inactive"}
+          </span>
+        ),
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        sortable: false,
+        filterable: false,
+        render: (store) => (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleEditStore(store)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleStoreStatusToggle(store)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              {store.active ? "Deactivate" : "Activate"}
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [handleEditStore, handleStoreStatusToggle],
+  );
+
+  const subscriptionColumns = useMemo<DataTableColumn<PlatformSubscriptionResponse>[]>(
+    () => [
+      {
+        key: "store",
+        header: "Store",
+        value: (subscription) =>
+          `${subscription.organizationName ?? ""} ${subscription.organizationCode ?? ""}`,
+        render: (subscription) => (
+          <div>
+            <div className="font-medium text-slate-900">{subscription.organizationName}</div>
+            <div className="text-xs text-slate-500">{subscription.organizationCode}</div>
+          </div>
+        ),
+      },
+      {
+        key: "plan",
+        header: "Plan",
+        value: (subscription) => subscription.planName ?? "No plan",
+        render: (subscription) => <span className="text-slate-700">{subscription.planName ?? "No plan"}</span>,
+      },
+      {
+        key: "dates",
+        header: "Dates",
+        value: (subscription) =>
+          `${subscription.startsOn ?? ""} ${subscription.endsOn ?? ""}`,
+        render: (subscription) => (
+          <span className="text-slate-700">
+            {formatDate(subscription.startsOn)} to {formatDate(subscription.endsOn)}
+          </span>
+        ),
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (subscription) => subscription.status ?? "Unknown",
+        render: (subscription) => <span className="text-slate-700">{subscription.status ?? "Unknown"}</span>,
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        sortable: false,
+        filterable: false,
+        render: (subscription) => (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSubscriptionForm(subscriptionFormFromResponse(subscription));
+                setSubscriptionStoreSearch(subscriptionStoreLabel(subscription));
+              }}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Change plan
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCancelSubscriptionForm({
+                  organizationId: subscription.organizationId,
+                  endsOn: subscription.endsOn ?? "",
+                  notes: "",
+                });
+                setCancelSubscriptionStoreSearch(subscriptionStoreLabel(subscription));
+              }}
+              className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+            >
+              Cancel
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
+
+  const planColumns = useMemo<DataTableColumn<SubscriptionPlanResponse>[]>(
+    () => [
+      {
+        key: "plan",
+        header: "Plan",
+        value: (plan) => `${plan.name ?? ""} ${plan.code ?? ""}`,
+        render: (plan) => (
+          <div>
+            <div className="font-medium text-slate-900">{plan.name}</div>
+            <div className="text-xs text-slate-500">{plan.code}</div>
+          </div>
+        ),
+      },
+      {
+        key: "billing",
+        header: "Billing",
+        value: (plan) => plan.billingPeriod ?? "",
+        render: (plan) => <span className="text-slate-700">{plan.billingPeriod}</span>,
+      },
+      {
+        key: "organizations",
+        header: "Organizations",
+        value: (plan) => (plan.unlimitedOrganizations ? "Unlimited" : plan.maxOrganizations ?? "Not set"),
+        render: (plan) => (
+          <span className="text-slate-700">
+            {plan.unlimitedOrganizations ? "Unlimited" : plan.maxOrganizations ?? "Not set"}
+          </span>
+        ),
+      },
+      {
+        key: "features",
+        header: "Features",
+        value: (plan) => plan.features.filter((feature) => feature.enabled).length,
+        render: (plan) => (
+          <span className="text-slate-700">{plan.features.filter((feature) => feature.enabled).length} enabled</span>
+        ),
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        sortable: false,
+        filterable: false,
+        render: (plan) => (
+          <button
+            type="button"
+            onClick={() => beginEditPlan(plan)}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Edit
+          </button>
+        ),
+      },
+    ],
+    [beginEditPlan],
+  );
+
+  const teamColumns = useMemo<DataTableColumn<PlatformTeamMemberSummaryResponse>[]>(
+    () => [
+      {
+        key: "member",
+        header: "Member",
+        value: (member) => `${member.fullName ?? ""} ${member.username ?? ""}`,
+        render: (member) => (
+          <div>
+            <div className="font-medium text-slate-900">{member.fullName}</div>
+            <div className="text-xs text-slate-500">{member.username}</div>
+          </div>
+        ),
+      },
+      {
+        key: "store",
+        header: "Store",
+        value: (member) => member.organizationName ?? "",
+        render: (member) => <span className="text-slate-700">{member.organizationName}</span>,
+      },
+      {
+        key: "role",
+        header: "Role",
+        value: (member) => member.roleName ?? member.roleCode ?? "No role",
+        render: (member) => (
+          <span className="text-slate-700">{member.roleName ?? member.roleCode ?? "No role"}</span>
+        ),
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (member) => (member.active ? "Active" : "Inactive"),
+        render: (member) => (
+          <span
+            className={`rounded-full px-2 py-1 text-xs font-semibold ${
+              member.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {member.active ? "Active" : "Inactive"}
+          </span>
+        ),
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        sortable: false,
+        filterable: false,
+        render: (member) => (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleEditTeam(member)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleTeamStatusToggle(member)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              {member.active ? "Deactivate" : "Activate"}
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [handleEditTeam, handleTeamStatusToggle],
+  );
+
+  const supportColumns = useMemo<DataTableColumn<PlatformSupportItemResponse>[]>(
+    () => [
+      {
+        key: "type",
+        header: "Type",
+        value: (item) => item.itemType,
+        render: (item) => <span className="text-slate-700">{item.itemType}</span>,
+      },
+      {
+        key: "store",
+        header: "Store",
+        value: (item) => item.organizationName,
+        render: (item) => <span className="text-slate-700">{item.organizationName}</span>,
+      },
+      {
+        key: "reference",
+        header: "Reference",
+        value: (item) => `${item.referenceNumber ?? `#${item.referenceId}`} ${item.summary ?? ""}`,
+        render: (item) => (
+          <div>
+            <div className="font-medium text-slate-900">{item.referenceNumber ?? `#${item.referenceId}`}</div>
+            <div className="text-xs text-slate-500">{item.summary ?? "No summary"}</div>
+          </div>
+        ),
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (item) => item.status ?? "Unknown",
+        render: (item) => <span className="text-slate-700">{item.status ?? "Unknown"}</span>,
+      },
+      {
+        key: "actions",
+        header: "Action",
+        sortable: false,
+        filterable: false,
+        render: (item) => (
+          <button
+            type="button"
+            onClick={() => beginSupportAction(item)}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            {item.itemType.toLowerCase().includes("warranty") ? "Update claim" : "Manage ticket"}
+          </button>
+        ),
+      },
+    ],
+    [beginSupportAction],
+  );
+
+  const feedbackColumns = useMemo<DataTableColumn<PlatformFeedbackResponse>[]>(
+    () => [
+      {
+        key: "store",
+        header: "Store",
+        value: (item) => item.organizationName,
+        render: (item) => <span className="text-slate-700">{item.organizationName}</span>,
+      },
+      {
+        key: "ticket",
+        header: "Ticket",
+        value: (item) => item.serviceTicketId,
+        render: (item) => <span className="text-slate-700">Ticket #{item.serviceTicketId}</span>,
+      },
+      {
+        key: "visitStatus",
+        header: "Visit Status",
+        value: (item) => item.visitStatus ?? "Unknown",
+        render: (item) => <span className="text-slate-700">{item.visitStatus ?? "Unknown"}</span>,
+      },
+      {
+        key: "completed",
+        header: "Completed",
+        value: (item) => item.completedAt ?? "",
+        render: (item) => <span className="text-slate-700">{formatDateTime(item.completedAt)}</span>,
+      },
+      {
+        key: "feedback",
+        header: "Feedback",
+        value: (item) => item.customerFeedback ?? "No feedback submitted",
+        render: (item) => <span className="text-slate-700">{item.customerFeedback ?? "No feedback submitted"}</span>,
+      },
+    ],
+    [],
+  );
+
+  const subscriptionStorePickerOptions = useMemo(
+    () =>
+      subscriptions.map((subscription) => ({
+        value: String(subscription.organizationId),
+        label: subscriptionStoreLabel(subscription),
+      })),
+    [subscriptions],
+  );
+
+  const teamMemberPickerOptions = useMemo(
+    () =>
+      teams.map((member) => ({
+        value: `${member.organizationId}:${member.userId}`,
+        label: `${teamMemberLabel(member)} · ${member.organizationName}`,
+      })),
+    [teams],
+  );
+
+  const supportItemPickerOptions = useMemo(
+    () =>
+      supportItems.map((item) => ({
+        value: `${item.itemType}:${item.referenceId}`,
+        label: `${supportItemLabel(item)} · ${item.itemType}`,
+      })),
+    [supportItems],
   );
 
   const allKnownFeatureTemplates = useMemo(() => {
@@ -542,7 +968,12 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
       }
 
       if (initialTab === "stores") {
-        setStores(await fetchPlatformStores(token));
+        const [nextStores, nextOwnerAccounts] = await Promise.all([
+          fetchPlatformStores(token),
+          fetchPlatformOwnerAccounts(token),
+        ]);
+        setStores(nextStores);
+        setOwnerAccounts(nextOwnerAccounts);
         return;
       }
 
@@ -609,12 +1040,36 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
     void loadActiveTab();
   }, [initialTab, token]);
 
+  useEffect(() => {
+    if (!token || initialTab !== "stores") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void fetchPlatformOwnerAccounts(token, ownerAccountSearch)
+        .then((response) => setOwnerAccounts(response))
+        .catch(() => undefined);
+    }, 180);
+
+    return () => window.clearTimeout(timeout);
+  }, [initialTab, ownerAccountSearch, token]);
+
   async function handleEditStore(store: PlatformStoreResponse) {
     if (!token) return;
     setError("");
     try {
       const detailed = await fetchPlatformStore(token, store.organizationId);
       setStoreForm(storeFormFromResponse(detailed));
+      const matchedOwner = ownerAccounts.find((account) => account.accountId === detailed.ownerAccountId);
+      setOwnerAccountSearch(
+        matchedOwner
+          ? matchedOwner.fullName?.trim()
+            ? `${matchedOwner.fullName} (${matchedOwner.loginIdentifier})`
+            : matchedOwner.loginIdentifier
+          : detailed.ownerAccountId != null
+            ? String(detailed.ownerAccountId)
+            : "",
+      );
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load store.");
     }
@@ -645,6 +1100,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
       }
 
       setStoreForm(emptyStoreForm());
+      setOwnerAccountSearch("");
       setStores(await fetchPlatformStores(token));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to save store.");
@@ -681,6 +1137,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
         notes: subscriptionForm.notes.trim() || undefined,
       });
       setSubscriptionForm(emptySubscriptionForm());
+      setSubscriptionStoreSearch("");
       setSubscriptions(await fetchPlatformSubscriptions(token));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to update subscription.");
@@ -699,6 +1156,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
         notes: cancelSubscriptionForm.notes.trim() || undefined,
       });
       setCancelSubscriptionForm(emptyCancelSubscriptionForm());
+      setCancelSubscriptionStoreSearch("");
       setSubscriptions(await fetchPlatformSubscriptions(token));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to cancel subscription.");
@@ -807,6 +1265,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
           : "",
       );
       setRoleSearch(detailed.roleName ?? detailed.roleCode ?? "");
+      setTeamMemberSearch(teamMemberLabel(member));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to load team member.");
     }
@@ -832,6 +1291,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
       setBranchOptions([]);
       setRoleSearch("");
       setDefaultBranchSearch("");
+      setTeamMemberSearch("");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to save team member.");
     } finally {
@@ -863,6 +1323,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
       status: item.status ?? "APPROVED",
     });
     setSupportAssigneeSearch("");
+    setSupportItemSearch(supportItemLabel(item));
   }
 
   async function handleAssignTicket() {
@@ -877,6 +1338,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
         remarks: supportAction.remarks.trim() || undefined,
       });
       setSupportAction(emptySupportActionState());
+      setSupportItemSearch("");
       setSupportItems(await fetchPlatformSupportItems(token));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to assign support ticket.");
@@ -898,6 +1360,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
         remarks: supportAction.remarks.trim() || undefined,
       });
       setSupportAction(emptySupportActionState());
+      setSupportItemSearch("");
       setSupportItems(await fetchPlatformSupportItems(token));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to close support ticket.");
@@ -924,6 +1387,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
         claimNotes: supportAction.claimNotes.trim() || undefined,
       });
       setSupportAction(emptySupportActionState());
+      setSupportItemSearch("");
       setSupportItems(await fetchPlatformSupportItems(token));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to update warranty claim.");
@@ -1029,10 +1493,15 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
                 Legal name
                 <input value={storeForm.legalName} onChange={(e) => setStoreForm((current) => ({ ...current, legalName: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
               </label>
-              <label className="text-sm text-slate-700">
-                Owner account ID
-                <input type="number" value={storeForm.ownerAccountId} onChange={(e) => setStoreForm((current) => ({ ...current, ownerAccountId: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
-              </label>
+              <SearchablePicker
+                label="Owner account"
+                placeholder="Search owner accounts"
+                value={storeForm.ownerAccountId}
+                search={ownerAccountSearch}
+                options={ownerAccountPickerOptions}
+                onSearchChange={setOwnerAccountSearch}
+                onValueChange={(value) => setStoreForm((current) => ({ ...current, ownerAccountId: value }))}
+              />
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="text-sm text-slate-700">
                   Phone
@@ -1070,44 +1539,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">Onboarded Stores</div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Store</th>
-                    <th className="px-3 py-2 font-medium">Plan</th>
-                    <th className="px-3 py-2 font-medium">Team</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stores.map((store) => (
-                    <tr key={store.organizationId} className="border-t border-slate-100">
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-slate-900">{store.organizationName}</div>
-                        <div className="text-xs text-slate-500">{store.organizationCode}</div>
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{store.currentPlanName ?? "No plan"}</td>
-                      <td className="px-3 py-2 text-slate-700">{store.teamCount} users</td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${store.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                          {store.active ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => void handleEditStore(store)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
-                          <button type="button" onClick={() => void handleStoreStatusToggle(store)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                            {store.active ? "Deactivate" : "Activate"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable className="mt-4 overflow-x-auto" columns={storeColumns} rows={stores} rowKey={(store) => store.organizationId} emptyMessage="No stores onboarded yet." />
           </div>
         </div>
       ) : null}
@@ -1117,10 +1549,29 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">Change Plan</div>
             <div className="mt-4 space-y-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Selected Store</div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {subscriptionForm.organizationId ? `Organization ${subscriptionForm.organizationId}` : "Pick a store from the list"}
-              </div>
+              <SearchablePicker
+                label="Store"
+                placeholder="Search store"
+                value={subscriptionForm.organizationId != null ? String(subscriptionForm.organizationId) : ""}
+                search={subscriptionStoreSearch}
+                options={subscriptionStorePickerOptions}
+                onSearchChange={setSubscriptionStoreSearch}
+                onValueChange={(value) => {
+                  const selectedSubscription = subscriptions.find(
+                    (subscription) => String(subscription.organizationId) === value,
+                  );
+
+                  setSubscriptionForm(
+                    selectedSubscription
+                      ? subscriptionFormFromResponse(selectedSubscription)
+                      : emptySubscriptionForm(),
+                  );
+
+                  if (!selectedSubscription) {
+                    setPlanSearch("");
+                  }
+                }}
+              />
               <SearchablePicker
                 label="Plan"
                 placeholder="Search plans"
@@ -1162,10 +1613,29 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">Cancel Subscription</div>
             <div className="mt-4 space-y-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Selected Store</div>
-              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {cancelSubscriptionForm.organizationId ? `Organization ${cancelSubscriptionForm.organizationId}` : "Pick a store from the list"}
-              </div>
+              <SearchablePicker
+                label="Store"
+                placeholder="Search store"
+                value={cancelSubscriptionForm.organizationId != null ? String(cancelSubscriptionForm.organizationId) : ""}
+                search={cancelSubscriptionStoreSearch}
+                options={subscriptionStorePickerOptions}
+                onSearchChange={setCancelSubscriptionStoreSearch}
+                onValueChange={(value) => {
+                  const selectedSubscription = subscriptions.find(
+                    (subscription) => String(subscription.organizationId) === value,
+                  );
+
+                  setCancelSubscriptionForm(
+                    selectedSubscription
+                      ? {
+                          organizationId: selectedSubscription.organizationId,
+                          endsOn: selectedSubscription.endsOn ?? "",
+                          notes: "",
+                        }
+                      : emptyCancelSubscriptionForm(),
+                  );
+                }}
+              />
               <label className="block text-sm text-slate-700">
                 Effective end date
                 <input type="date" value={cancelSubscriptionForm.endsOn} onChange={(e) => setCancelSubscriptionForm((current) => ({ ...current, endsOn: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
@@ -1182,42 +1652,13 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">Store Subscriptions</div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Store</th>
-                    <th className="px-3 py-2 font-medium">Plan</th>
-                    <th className="px-3 py-2 font-medium">Dates</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subscriptions.map((subscription) => (
-                    <tr key={subscription.organizationId} className="border-t border-slate-100">
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-slate-900">{subscription.organizationName}</div>
-                        <div className="text-xs text-slate-500">{subscription.organizationCode}</div>
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{subscription.planName ?? "No plan"}</td>
-                      <td className="px-3 py-2 text-slate-700">{formatDate(subscription.startsOn)} to {formatDate(subscription.endsOn)}</td>
-                      <td className="px-3 py-2 text-slate-700">{subscription.status ?? "Unknown"}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => setSubscriptionForm(subscriptionFormFromResponse(subscription))} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                            Change plan
-                          </button>
-                          <button type="button" onClick={() => setCancelSubscriptionForm({ organizationId: subscription.organizationId, endsOn: subscription.endsOn ?? "", notes: "" })} className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50">
-                            Cancel
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              className="mt-4 overflow-x-auto"
+              columns={subscriptionColumns}
+              rows={subscriptions}
+              rowKey={(subscription) => subscription.organizationId}
+              emptyMessage="No subscriptions found."
+            />
           </div>
         </div>
       ) : null}
@@ -1268,35 +1709,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
           <div className="space-y-4">
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="text-sm font-semibold text-slate-900">Plan Catalog</div>
-              <div className="mt-4 overflow-x-auto">
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Plan</th>
-                      <th className="px-3 py-2 font-medium">Billing</th>
-                      <th className="px-3 py-2 font-medium">Organizations</th>
-                      <th className="px-3 py-2 font-medium">Features</th>
-                      <th className="px-3 py-2 font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plans.map((plan) => (
-                      <tr key={plan.id} className="border-t border-slate-100">
-                        <td className="px-3 py-2">
-                          <div className="font-medium text-slate-900">{plan.name}</div>
-                          <div className="text-xs text-slate-500">{plan.code}</div>
-                        </td>
-                        <td className="px-3 py-2 text-slate-700">{plan.billingPeriod}</td>
-                        <td className="px-3 py-2 text-slate-700">{plan.unlimitedOrganizations ? "Unlimited" : plan.maxOrganizations ?? "Not set"}</td>
-                        <td className="px-3 py-2 text-slate-700">{plan.features.filter((feature) => feature.enabled).length} enabled</td>
-                        <td className="px-3 py-2">
-                          <button type="button" onClick={() => beginEditPlan(plan)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable className="mt-4 overflow-x-auto" columns={planColumns} rows={plans} rowKey={(plan) => plan.id} emptyMessage="No plans configured." />
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -1338,12 +1751,38 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-900">Edit Team Member</div>
-              <button type="button" onClick={() => { setTeamForm(emptyTeamForm()); setBranchOptions([]); setRoleSearch(""); setDefaultBranchSearch(""); }} className="text-sm text-slate-500 hover:text-slate-900">Reset</button>
+              <button type="button" onClick={() => { setTeamForm(emptyTeamForm()); setBranchOptions([]); setRoleSearch(""); setDefaultBranchSearch(""); setTeamMemberSearch(""); }} className="text-sm text-slate-500 hover:text-slate-900">Reset</button>
             </div>
             <div className="mt-4 grid gap-3">
-              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {teamForm.userId ? `User ${teamForm.userId} in organization ${teamForm.organizationId}` : "Pick a member from the list"}
-              </div>
+              <SearchablePicker
+                label="Team member"
+                placeholder="Search team member"
+                value={
+                  teamForm.userId != null && teamForm.organizationId != null
+                    ? `${teamForm.organizationId}:${teamForm.userId}`
+                    : ""
+                }
+                search={teamMemberSearch}
+                options={teamMemberPickerOptions}
+                onSearchChange={setTeamMemberSearch}
+                onValueChange={(value) => {
+                  const [organizationIdValue, userIdValue] = value.split(":");
+                  const selectedMember = teams.find(
+                    (member) =>
+                      String(member.organizationId) === organizationIdValue &&
+                      String(member.userId) === userIdValue,
+                  );
+
+                  if (selectedMember) {
+                    void handleEditTeam(selectedMember);
+                  } else {
+                    setTeamForm(emptyTeamForm());
+                    setBranchOptions([]);
+                    setRoleSearch("");
+                    setDefaultBranchSearch("");
+                  }
+                }}
+              />
               <label className="block text-sm text-slate-700">
                 Full name
                 <input value={teamForm.fullName} onChange={(e) => setTeamForm((current) => ({ ...current, fullName: e.target.value }))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
@@ -1416,44 +1855,7 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">Store Teams</div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Member</th>
-                    <th className="px-3 py-2 font-medium">Store</th>
-                    <th className="px-3 py-2 font-medium">Role</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {teams.map((member) => (
-                    <tr key={`${member.organizationId}-${member.userId}`} className="border-t border-slate-100">
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-slate-900">{member.fullName}</div>
-                        <div className="text-xs text-slate-500">{member.username}</div>
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{member.organizationName}</td>
-                      <td className="px-3 py-2 text-slate-700">{member.roleName ?? member.roleCode ?? "No role"}</td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded-full px-2 py-1 text-xs font-semibold ${member.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                          {member.active ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => void handleEditTeam(member)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
-                          <button type="button" onClick={() => void handleTeamStatusToggle(member)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                            {member.active ? "Deactivate" : "Activate"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable className="mt-4 overflow-x-auto" columns={teamColumns} rows={teams} rowKey={(member) => `${member.organizationId}-${member.userId}`} emptyMessage="No team members found." />
           </div>
         </div>
       ) : null}
@@ -1463,9 +1865,32 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">Support Action</div>
             <div className="mt-4 space-y-3">
-              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {supportAction.referenceId ? `${supportAction.itemType} #${supportAction.referenceId}` : "Pick an item from the queue"}
-              </div>
+              <SearchablePicker
+                label="Queue item"
+                placeholder="Search support item"
+                value={
+                  supportAction.referenceId != null && supportAction.itemType
+                    ? `${supportAction.itemType}:${supportAction.referenceId}`
+                    : ""
+                }
+                search={supportItemSearch}
+                options={supportItemPickerOptions}
+                onSearchChange={setSupportItemSearch}
+                onValueChange={(value) => {
+                  const [itemTypeValue, referenceIdValue] = value.split(":");
+                  const selectedItem = supportItems.find(
+                    (item) =>
+                      item.itemType === itemTypeValue &&
+                      String(item.referenceId) === referenceIdValue,
+                  );
+
+                  if (selectedItem) {
+                    beginSupportAction(selectedItem);
+                  } else {
+                    setSupportAction(emptySupportActionState());
+                  }
+                }}
+              />
               {supportAction.itemType.toLowerCase().includes("warranty") ? (
                 <>
                   <label className="block text-sm text-slate-700">
@@ -1547,37 +1972,13 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
 
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-sm font-semibold text-slate-900">Support Queue</div>
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Type</th>
-                    <th className="px-3 py-2 font-medium">Store</th>
-                    <th className="px-3 py-2 font-medium">Reference</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {supportItems.map((item) => (
-                    <tr key={`${item.itemType}-${item.referenceId}`} className="border-t border-slate-100">
-                      <td className="px-3 py-2 text-slate-700">{item.itemType}</td>
-                      <td className="px-3 py-2 text-slate-700">{item.organizationName}</td>
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-slate-900">{item.referenceNumber ?? `#${item.referenceId}`}</div>
-                        <div className="text-xs text-slate-500">{item.summary ?? "No summary"}</div>
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{item.status ?? "Unknown"}</td>
-                      <td className="px-3 py-2">
-                        <button type="button" onClick={() => beginSupportAction(item)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                          {item.itemType.toLowerCase().includes("warranty") ? "Update claim" : "Manage ticket"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              className="mt-4 overflow-x-auto"
+              columns={supportColumns}
+              rows={supportItems}
+              rowKey={(item) => `${item.itemType}-${item.referenceId}`}
+              emptyMessage="No support items in queue."
+            />
           </div>
         </div>
       ) : null}
@@ -1585,30 +1986,13 @@ export function PlatformAdminConsole({ initialTab = "overview" }: { initialTab?:
       {!isLoading && initialTab === "feedback" ? (
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="text-sm font-semibold text-slate-900">Captured Feedback</div>
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500">
-                <tr>
-                  <th className="px-3 py-2 font-medium">Store</th>
-                  <th className="px-3 py-2 font-medium">Ticket</th>
-                  <th className="px-3 py-2 font-medium">Visit Status</th>
-                  <th className="px-3 py-2 font-medium">Completed</th>
-                  <th className="px-3 py-2 font-medium">Feedback</th>
-                </tr>
-              </thead>
-              <tbody>
-                {feedback.map((item) => (
-                  <tr key={`${item.serviceVisitId}-${item.serviceTicketId}`} className="border-t border-slate-100">
-                    <td className="px-3 py-2 text-slate-700">{item.organizationName}</td>
-                    <td className="px-3 py-2 text-slate-700">Ticket #{item.serviceTicketId}</td>
-                    <td className="px-3 py-2 text-slate-700">{item.visitStatus ?? "Unknown"}</td>
-                    <td className="px-3 py-2 text-slate-700">{formatDateTime(item.completedAt)}</td>
-                    <td className="px-3 py-2 text-slate-700">{item.customerFeedback ?? "No feedback submitted"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            className="mt-4 overflow-x-auto"
+            columns={feedbackColumns}
+            rows={feedback}
+            rowKey={(item) => `${item.serviceVisitId}-${item.serviceTicketId}`}
+            emptyMessage="No feedback records found."
+          />
         </div>
       ) : null}
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { fetchStoreProducts, fetchWarehouses, type StoreProductResponse, type WarehouseResponse } from "../inventory/api";
 import { DocumentDetailsDialog, formatCurrency as formatDocumentCurrency, formatDate } from "../sales/DocumentDetailsDialog";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
 import {
   createPurchaseReceipt,
   fetchPurchaseOrder,
@@ -157,6 +158,62 @@ export function PurchaseReceipts() {
   const selectedSupplier = useMemo(
     () => suppliers.find((supplier) => supplier.id === Number(supplierId)) ?? null,
     [supplierId, suppliers],
+  );
+
+  const purchaseReceiptColumns = useMemo<DataTableColumn<PurchaseReceiptSummaryResponse>[]>(
+    () => [
+      {
+        key: "receipt",
+        header: "Receipt",
+        value: (receipt) => `${receipt.receiptNumber} ${receipt.supplierId}`,
+        render: (receipt) => (
+          <div>
+            <div className="text-base font-semibold text-slate-950">{receipt.receiptNumber}</div>
+            <div className="mt-1 text-sm text-slate-500">Supplier #{receipt.supplierId}</div>
+          </div>
+        ),
+      },
+      {
+        key: "date",
+        header: "Date",
+        value: (receipt) => receipt.receiptDate,
+        render: (receipt) => (
+          <span className="text-sm text-slate-600">{new Date(receipt.receiptDate).toLocaleDateString("en-IN")}</span>
+        ),
+      },
+      {
+        key: "total",
+        header: "Total",
+        value: (receipt) => receipt.totalAmount,
+        render: (receipt) => <span className="text-sm font-medium text-slate-900">{formatCurrency(receipt.totalAmount)}</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (receipt) => receipt.status,
+        render: (receipt) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            {receipt.status}
+          </span>
+        ),
+      },
+      {
+        key: "action",
+        header: "Action",
+        sortable: false,
+        filterable: false,
+        render: (receipt) => (
+          <button
+            type="button"
+            onClick={() => void openReceiptDetails(receipt.id)}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            View details
+          </button>
+        ),
+      },
+    ],
+    [openReceiptDetails],
   );
 
   async function handleCreateReceipt(event: React.FormEvent<HTMLFormElement>) {
@@ -335,7 +392,7 @@ export function PurchaseReceipts() {
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Purchase Receipts</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">Live ERP purchase receipts from `/api/erp/purchases/receipts`, with direct receipt creation.</p>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <section className="grid gap-6 xl:grid-cols-[520px_minmax(0,1fr)] 2xl:grid-cols-[560px_minmax(0,1fr)]">
         <form onSubmit={handleCreateReceipt} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3"><div className="rounded-2xl bg-slate-100 p-3 text-slate-700"><CirclePlus className="h-5 w-5" /></div><div><div className="text-lg font-semibold text-slate-950">Create Receipt</div><div className="text-sm text-slate-500">Direct ERP purchase receipt flow</div></div></div>
           <div className="mt-6 space-y-4">
@@ -405,7 +462,25 @@ export function PurchaseReceipts() {
         </form>
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search receipt number or status" className="crm-field pl-11" /></div>
-          <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200"><div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.9fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid"><div>Receipt</div><div>Date</div><div>Total</div><div>Status</div><div>Action</div></div><div className="divide-y divide-slate-200">{isLoading ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase receipts...</div> : filteredReceipts.length > 0 ? filteredReceipts.map((receipt) => <div key={receipt.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.9fr] lg:items-center"><div><div className="text-base font-semibold text-slate-950">{receipt.receiptNumber}</div><div className="mt-1 text-sm text-slate-500">Supplier #{receipt.supplierId}</div></div><div className="text-sm text-slate-600">{new Date(receipt.receiptDate).toLocaleDateString("en-IN")}</div><div className="text-sm font-medium text-slate-900">{formatCurrency(receipt.totalAmount)}</div><div><span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{receipt.status}</span></div><div><button type="button" onClick={() => void openReceiptDetails(receipt.id)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100">View details</button></div></div>) : <div className="px-6 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><ReceiptText className="h-6 w-6" /></div><h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase receipts yet</h2></div>}</div></div>
+          <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
+            {isLoading ? (
+              <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase receipts...</div>
+            ) : filteredReceipts.length > 0 ? (
+              <DataTable
+                columns={purchaseReceiptColumns}
+                rows={filteredReceipts}
+                rowKey={(receipt) => receipt.id}
+                className="overflow-x-auto"
+              />
+            ) : (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                  <ReceiptText className="h-6 w-6" />
+                </div>
+                <h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase receipts yet</h2>
+              </div>
+            )}
+          </div>
         </section>
       </section>
 

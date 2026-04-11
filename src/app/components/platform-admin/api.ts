@@ -74,6 +74,15 @@ export interface PlatformStoreUpsertPayload {
   isActive?: boolean;
 }
 
+export interface PlatformOwnerAccountReferenceResponse {
+  accountId: number;
+  loginIdentifier: string;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  active: boolean | null;
+}
+
 export interface PlatformSubscriptionResponse {
   organizationId: number;
   organizationCode: string;
@@ -311,6 +320,18 @@ export async function fetchPlatformOverview(token: string) {
 
 export async function fetchPlatformStores(token: string) {
   return platformRequest<PlatformStoreResponse[]>("/api/platform-admin/stores", token);
+}
+
+export async function fetchPlatformOwnerAccounts(token: string, query?: string) {
+  const search = new URLSearchParams();
+  if (query?.trim()) {
+    search.set("query", query.trim());
+  }
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return platformRequest<PlatformOwnerAccountReferenceResponse[]>(
+    `/api/platform-admin/owner-accounts${suffix}`,
+    token,
+  );
 }
 
 export async function fetchPlatformStore(token: string, organizationId: number) {

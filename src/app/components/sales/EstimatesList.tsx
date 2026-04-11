@@ -2,6 +2,7 @@ import { AlertCircle, CirclePlus, FileText, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "../../auth";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
 import {
   cancelQuote,
   fetchQuote,
@@ -86,6 +87,70 @@ export function EstimatesList() {
         { totalAmount: 0, openCount: 0 },
       ),
     [filteredQuotes],
+  );
+
+  const quoteColumns = useMemo<DataTableColumn<SalesQuoteSummaryResponse>[]>(
+    () => [
+      {
+        key: "quote",
+        header: "Quote",
+        value: (quote) => `${quote.quoteNumber} ${quote.customerId}`,
+        render: (quote) => (
+          <div>
+            <div className="text-base font-semibold text-slate-950">{quote.quoteNumber}</div>
+            <div className="mt-1 text-sm text-slate-500">Customer #{quote.customerId}</div>
+          </div>
+        ),
+      },
+      {
+        key: "type",
+        header: "Type",
+        value: (quote) => quote.quoteType,
+        render: (quote) => <span className="text-sm font-medium text-slate-900">{quote.quoteType}</span>,
+      },
+      {
+        key: "date",
+        header: "Date",
+        value: (quote) => quote.quoteDate,
+        render: (quote) => (
+          <span className="text-sm text-slate-600">
+            {new Date(quote.quoteDate).toLocaleDateString("en-IN")}
+          </span>
+        ),
+      },
+      {
+        key: "total",
+        header: "Total",
+        value: (quote) => quote.totalAmount,
+        render: (quote) => <span className="text-sm font-medium text-slate-900">{formatCurrency(quote.totalAmount)}</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (quote) => quote.status,
+        render: (quote) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            {quote.status}
+          </span>
+        ),
+      },
+      {
+        key: "action",
+        header: "Action",
+        sortable: false,
+        filterable: false,
+        render: (quote) => (
+          <button
+            type="button"
+            onClick={() => void openDetails(quote.id)}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            View details
+          </button>
+        ),
+      },
+    ],
+    [openDetails],
   );
 
   async function openDetails(quoteId: number) {
@@ -240,63 +305,26 @@ export function EstimatesList() {
         )}
 
         <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-          <div className="hidden grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
-            <div>Quote</div>
-            <div>Type</div>
-            <div>Date</div>
-            <div>Total</div>
-            <div>Status</div>
-            <div>Action</div>
-          </div>
-
-          <div className="divide-y divide-slate-200">
-            {isLoading ? (
-              <div className="px-6 py-16 text-center text-sm text-slate-500">Loading quotes...</div>
-            ) : filteredQuotes.length > 0 ? (
-              filteredQuotes.map((quote) => (
-                <div
-                  key={quote.id}
-                  className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr] lg:items-center"
-                >
-                  <div>
-                    <div className="text-base font-semibold text-slate-950">{quote.quoteNumber}</div>
-                    <div className="mt-1 text-sm text-slate-500">Customer #{quote.customerId}</div>
-                  </div>
-                  <div className="text-sm font-medium text-slate-900">{quote.quoteType}</div>
-                  <div className="text-sm text-slate-600">
-                    {new Date(quote.quoteDate).toLocaleDateString("en-IN")}
-                  </div>
-                  <div className="text-sm font-medium text-slate-900">
-                    {formatCurrency(quote.totalAmount)}
-                  </div>
-                  <div>
-                    <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                      {quote.status}
-                    </span>
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => void openDetails(quote.id)}
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      View details
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="px-6 py-16 text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-                  <FileText className="h-6 w-6" />
-                </div>
-                <h2 className="mt-4 text-lg font-semibold text-slate-950">No quotes yet</h2>
-                <p className="mt-2 text-sm text-slate-600">
-                  Start with a new quote using the ERP sales quote flow.
-                </p>
+          {isLoading ? (
+            <div className="px-6 py-16 text-center text-sm text-slate-500">Loading quotes...</div>
+          ) : filteredQuotes.length > 0 ? (
+            <DataTable
+              columns={quoteColumns}
+              rows={filteredQuotes}
+              rowKey={(quote) => quote.id}
+              className="overflow-x-auto"
+            />
+          ) : (
+            <div className="px-6 py-16 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                <FileText className="h-6 w-6" />
               </div>
-            )}
-          </div>
+              <h2 className="mt-4 text-lg font-semibold text-slate-950">No quotes yet</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Start with a new quote using the ERP sales quote flow.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

@@ -1,3 +1,5 @@
+import { readStoredAuthSession, writeStoredAuthSession, type StoredAuthSession } from "./auth-session";
+
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface ApiErrorPayload {
@@ -46,6 +48,122 @@ interface RequestOptions extends RequestInit {
   idempotencyKey?: string;
 }
 
+interface RefreshResponse {
+  token?: string;
+  refreshToken?: string | null;
+  type?: string;
+  accessTokenExpiresAt?: string | null;
+  refreshTokenExpiresAt?: string | null;
+  clientType?: string | null;
+}
+
+const AUTH_PATH_PREFIX = "/api/auth/";
+const NO_AUTO_REFRESH_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/refresh",
+]);
+
+function isAuthPath(path: string) {
+  return path.startsWith(AUTH_PATH_PREFIX);
+}
+
+function shouldTryRefresh(path: string) {
+  return !NO_AUTO_REFRESH_PATHS.has(path);
+}
+
+function resolveAuthToken(providedToken?: string | null) {
+  return readStoredAuthSession()?.token ?? providedToken ?? null;
+}
+
+function notifySessionCleared() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("auth:session-cleared"));
+  }
+}
+
+async function tryRefreshAccessToken(): Promise<string | null> {
+  const storedSession = readStoredAuthSession();
+  if (!storedSession?.refreshToken) {
+    return null;
+  }
+
+  const refreshResponse = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ refreshToken: storedSession.refreshToken }),
+  });
+
+  if (!refreshResponse.ok) {
+    if (refreshResponse.status === 400 || refreshResponse.status === 401 || refreshResponse.status === 403) {
+      writeStoredAuthSession(null);
+      notifySessionCleared();
+    }
+    return null;
+  }
+
+  const payload = (await refreshResponse.json()) as RefreshResponse | { data?: RefreshResponse };
+  const resolvedPayload = "data" in payload && payload.data ? payload.data : payload;
+  if (!resolvedPayload.token) {
+    return null;
+  }
+
+  const nextSession: StoredAuthSession = {
+    ...storedSession,
+    token: resolvedPayload.token,
+    tokenType: resolvedPayload.type ?? storedSession.tokenType ?? "Bearer",
+    refreshToken: resolvedPayload.refreshToken ?? storedSession.refreshToken ?? null,
+    accessTokenExpiresAt: resolvedPayload.accessTokenExpiresAt ?? storedSession.accessTokenExpiresAt ?? null,
+    refreshTokenExpiresAt:
+      resolvedPayload.refreshTokenExpiresAt ?? storedSession.refreshTokenExpiresAt ?? null,
+    clientType: resolvedPayload.clientType ?? storedSession.clientType ?? "WEB",
+  };
+  writeStoredAuthSession(nextSession);
+  return nextSession.token;
+}
+
+async function requestWithAutoRefresh(
+  path: string,
+  options: RequestOptions,
+  includeJsonContentType: boolean,
+): Promise<Response> {
+  const { token, headers, body, idempotencyKey, ...rest } = options;
+  const buildHeaders = (authToken: string | null) => ({
+    ...(includeJsonContentType ? { "Content-Type": "application/json" } : {}),
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+    ...headers,
+  });
+
+  let authToken = resolveAuthToken(token);
+  let response = await fetch(`${API_BASE_URL}${path}`, {
+    ...rest,
+    headers: buildHeaders(authToken),
+    body,
+  });
+
+  if (
+    response.status === 401 &&
+    !isAuthPath(path) &&
+    shouldTryRefresh(path) &&
+    Boolean(readStoredAuthSession()?.refreshToken)
+  ) {
+    const refreshedToken = await tryRefreshAccessToken();
+    if (refreshedToken) {
+      authToken = refreshedToken;
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...rest,
+        headers: buildHeaders(authToken),
+        body,
+      });
+    }
+  }
+
+  return response;
+}
+
 async function parseError(response: Response): Promise<never> {
   let payload: ApiErrorPayload | null = null;
 
@@ -73,18 +191,7 @@ async function parseError(response: Response): Promise<never> {
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { token, headers, body, idempotencyKey, ...rest } = options;
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...rest,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-      ...headers,
-    },
-    body,
-  });
+  const response = await requestWithAutoRefresh(path, options, true);
 
   if (!response.ok) {
     return parseError(response);
@@ -98,18 +205,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 }
 
 export async function apiBinaryRequest(path: string, options: RequestOptions = {}): Promise<Blob> {
-  const { token, headers, body, idempotencyKey, ...rest } = options;
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...rest,
-    headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
-      ...headers,
-    },
-    body,
-  });
+  const response = await requestWithAutoRefresh(path, options, Boolean(options.body));
 
   if (!response.ok) {
     return parseError(response);

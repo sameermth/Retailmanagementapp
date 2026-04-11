@@ -6,10 +6,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { readStoredAuthSession, writeStoredAuthSession, type StoredAuthSession } from "./lib/auth-session";
 import { ApiError, apiRequest } from "./lib/api";
 import { defaultCapabilities, type FeatureKey, type SubscriptionCapabilities } from "./features";
 
-const AUTH_STORAGE_KEY = "auth.session";
 const CAPABILITIES_STORAGE_PREFIX = "auth.capabilities";
 const ENABLE_SUBSCRIPTION_CAPABILITIES =
   import.meta.env.VITE_ENABLE_SUBSCRIPTION_CAPABILITIES === "true";
@@ -74,12 +74,17 @@ export interface DemoBranch {
 interface AuthSession {
   token: string;
   tokenType: string;
+  refreshToken?: string | null;
+  accessTokenExpiresAt?: string | null;
+  refreshTokenExpiresAt?: string | null;
+  clientType?: string | null;
   user: AuthUser;
 }
 
 interface LoginPayload {
   username: string;
   password: string;
+  organizationId?: number;
 }
 
 interface RegisterPayload {
@@ -104,6 +109,7 @@ interface AuthContextValue {
   login: (payload: LoginPayload) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
+  switchOrganization: (organizationId: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -112,28 +118,12 @@ function capabilitiesStorageKey(userId: number) {
   return `${CAPABILITIES_STORAGE_PREFIX}.${userId}`;
 }
 
-function readStoredSession(): AuthSession | null {
-  const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(raw) as AuthSession;
-  } catch {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    return null;
-  }
+function writeStoredSession(session: AuthSession | null) {
+  writeStoredAuthSession<AuthUser>(session as StoredAuthSession<AuthUser> | null);
 }
 
-function writeStoredSession(session: AuthSession | null) {
-  if (!session) {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    return;
-  }
-
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+function readStoredSession(): AuthSession | null {
+  return readStoredAuthSession<AuthUser>() as AuthSession | null;
 }
 
 function readStoredCapabilities(userId: number): SubscriptionCapabilities {
@@ -157,7 +147,11 @@ function writeStoredCapabilities(userId: number, capabilities: SubscriptionCapab
 
 interface JwtResponse {
   token: string;
+  refreshToken?: string | null;
   type: string;
+  accessTokenExpiresAt?: string | null;
+  refreshTokenExpiresAt?: string | null;
+  clientType?: string | null;
   id: number;
   organizationId?: number | null;
   organizationCode?: string | null;
@@ -191,26 +185,34 @@ function capabilitiesFromJwt(response: JwtResponse): SubscriptionCapabilities {
   };
 }
 
-function createSessionFromJwt(response: JwtResponse): AuthSession {
-  const memberships = response.memberships ?? [];
+function createSessionFromJwt(response: JwtResponse, currentSession?: AuthSession | null): AuthSession {
+  const memberships =
+    response.memberships && response.memberships.length > 0
+      ? response.memberships
+      : currentSession?.user.memberships ?? [];
   const activeMembership =
     memberships.find((membership) => membership.organizationId === response.organizationId) ??
     memberships[0];
 
   return {
-    token: response.token,
-    tokenType: response.type,
+    token: response.token ?? currentSession?.token ?? "",
+    tokenType: response.type ?? currentSession?.tokenType ?? "Bearer",
+    refreshToken: response.refreshToken ?? currentSession?.refreshToken ?? null,
+    accessTokenExpiresAt: response.accessTokenExpiresAt ?? currentSession?.accessTokenExpiresAt ?? null,
+    refreshTokenExpiresAt:
+      response.refreshTokenExpiresAt ?? currentSession?.refreshTokenExpiresAt ?? null,
+    clientType: response.clientType ?? currentSession?.clientType ?? null,
     user: {
-      id: response.id,
-      organizationId: response.organizationId,
+      id: response.id ?? currentSession?.user.id ?? 0,
+      organizationId: response.organizationId ?? activeMembership?.organizationId ?? null,
       organizationCode: response.organizationCode ?? activeMembership?.organizationCode ?? null,
       organizationName: response.organizationName ?? activeMembership?.organizationName ?? null,
       defaultBranchId: activeMembership?.defaultBranchId ?? null,
-      username: response.username,
-      email: response.email,
-      roles: response.roles,
-      permissions: response.permissions ?? [],
-      memberships,
+      username: response.username ?? currentSession?.user.username ?? "",
+      email: response.email ?? currentSession?.user.email ?? "",
+      roles: response.roles ?? currentSession?.user.roles ?? [],
+      permissions: response.permissions ?? currentSession?.user.permissions ?? [],
+      memberships: memberships.length > 0 ? memberships : currentSession?.user.memberships ?? [],
     },
   };
 }
@@ -291,6 +293,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(storedSession);
     setCapabilities(storedSession?.user ? readStoredCapabilities(storedSession.user.id) : defaultCapabilities());
     setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    function handleSessionCleared() {
+      setSession(null);
+      setCapabilities(defaultCapabilities());
+    }
+
+    window.addEventListener("auth:session-cleared", handleSessionCleared);
+    return () => {
+      window.removeEventListener("auth:session-cleared", handleSessionCleared);
+    };
   }, []);
 
   useEffect(() => {
@@ -425,10 +439,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({
             username: payload.username.trim(),
             password: payload.password,
+            clientType: "WEB",
+            ...(payload.organizationId ? { organizationId: payload.organizationId } : {}),
           }),
         });
 
-        const nextSession = createSessionFromJwt(response);
+        const nextSession = createSessionFromJwt(response, null);
         const nextCapabilities = ENABLE_SUBSCRIPTION_CAPABILITIES
           ? await fetchCapabilities(nextSession.token)
           : capabilitiesFromJwt(response);
@@ -452,7 +468,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }),
         });
 
-        const nextSession = createSessionFromJwt(response);
+        const nextSession = createSessionFromJwt(response, null);
         const nextCapabilities = ENABLE_SUBSCRIPTION_CAPABILITIES
           ? await fetchCapabilities(nextSession.token)
           : capabilitiesFromJwt(response);
@@ -469,6 +485,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await apiRequest<void>("/api/auth/logout", {
               method: "POST",
               token: session.token,
+              body: session.refreshToken ? JSON.stringify({ refreshToken: session.refreshToken }) : undefined,
             });
           } catch {
             // Clear local session even if backend logout fails.
@@ -478,6 +495,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         writeStoredSession(null);
         setSession(null);
         setCapabilities(defaultCapabilities());
+      },
+      async switchOrganization(organizationId) {
+        if (!session?.token) {
+          throw new Error("You are not logged in.");
+        }
+
+        const response = await apiRequest<JwtResponse>("/api/auth/switch-organization", {
+          method: "POST",
+          token: session.token,
+          body: JSON.stringify({ organizationId }),
+        });
+
+        const nextSession = createSessionFromJwt(response, session);
+        const nextCapabilities = ENABLE_SUBSCRIPTION_CAPABILITIES
+          ? await fetchCapabilities(nextSession.token)
+          : capabilitiesFromJwt(response);
+        writeStoredSession(nextSession);
+        writeStoredCapabilities(nextSession.user.id, nextCapabilities);
+        setSession(nextSession);
+        setCapabilities(
+          nextCapabilities.source === "fallback" ? capabilitiesFromJwt(response) : nextCapabilities,
+        );
       },
     }),
     [capabilities, isLoading, session],

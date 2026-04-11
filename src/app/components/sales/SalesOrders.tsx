@@ -2,6 +2,8 @@ import { AlertCircle, CirclePlus, ScrollText, Search, Trash2 } from "lucide-reac
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { fetchWarehouses, type WarehouseResponse } from "../inventory/api";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
+import { SurfaceCard } from "../ui/surface";
 import {
   cancelOrder,
   createOrder,
@@ -103,6 +105,64 @@ export function SalesOrders() {
     const query = searchTerm.trim().toLowerCase();
     return orders.filter((order) => !query || order.orderNumber.toLowerCase().includes(query) || order.status.toLowerCase().includes(query));
   }, [orders, searchTerm]);
+
+  const orderColumns = useMemo<DataTableColumn<SalesOrderSummaryResponse>[]>(
+    () => [
+      {
+        key: "order",
+        header: "Order",
+        value: (order) => `${order.orderNumber} ${order.customerId}`,
+        render: (order) => (
+          <div>
+            <div className="text-base font-semibold text-slate-950">{order.orderNumber}</div>
+            <div className="mt-1 text-sm text-slate-500">Customer #{order.customerId}</div>
+          </div>
+        ),
+      },
+      {
+        key: "date",
+        header: "Date",
+        value: (order) => order.orderDate,
+        render: (order) => (
+          <span className="text-sm text-slate-600">
+            {new Date(order.orderDate).toLocaleDateString("en-IN")}
+          </span>
+        ),
+      },
+      {
+        key: "total",
+        header: "Total",
+        value: (order) => order.totalAmount,
+        render: (order) => <span className="text-sm font-medium text-slate-900">{formatCurrency(order.totalAmount)}</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (order) => order.status,
+        render: (order) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            {order.status}
+          </span>
+        ),
+      },
+      {
+        key: "action",
+        header: "Action",
+        sortable: false,
+        filterable: false,
+        render: (order) => (
+          <button
+            type="button"
+            onClick={() => void openDetails(order.id)}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            View details
+          </button>
+        ),
+      },
+    ],
+    [openDetails],
+  );
 
   const selectedCustomer = useMemo(
     () => customers.find((customer) => customer.id === Number(customerId)) ?? null,
@@ -243,14 +303,14 @@ export function SalesOrders() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+      <SurfaceCard as="section" padding="lg">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Sales</div>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Sales Orders</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">Live ERP sales orders from `/api/erp/sales/orders`, with direct order creation.</p>
-      </section>
+      </SurfaceCard>
 
-      <section className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <form onSubmit={handleCreateOrder} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="grid gap-6 xl:grid-cols-[520px_minmax(0,1fr)] 2xl:grid-cols-[560px_minmax(0,1fr)]">
+        <SurfaceCard as="form" onSubmit={handleCreateOrder}>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-slate-100 p-3 text-slate-700"><CirclePlus className="h-5 w-5" /></div>
             <div><div className="text-lg font-semibold text-slate-950">Create Order</div><div className="text-sm text-slate-500">Direct ERP sales order flow</div></div>
@@ -337,36 +397,33 @@ export function SalesOrders() {
             )}
             <button type="submit" disabled={isSubmitting || isLoading} className="w-full rounded-full bg-slate-950 px-4 py-3 text-sm font-medium text-white disabled:opacity-60">{isSubmitting ? "Creating..." : "Create sales order"}</button>
           </div>
-        </form>
+        </SurfaceCard>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SurfaceCard as="section">
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search order number or status" className="crm-field pl-11" />
           </div>
           <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-            <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid"><div>Order</div><div>Date</div><div>Total</div><div>Status</div><div>Action</div></div>
-            <div className="divide-y divide-slate-200">
-              {isLoading ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading orders...</div> : filteredOrders.length > 0 ? filteredOrders.map((order) => (
-                <div key={order.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] lg:items-center">
-                  <div><div className="text-base font-semibold text-slate-950">{order.orderNumber}</div><div className="mt-1 text-sm text-slate-500">Customer #{order.customerId}</div></div>
-                  <div className="text-sm text-slate-600">{new Date(order.orderDate).toLocaleDateString("en-IN")}</div>
-                  <div className="text-sm font-medium text-slate-900">{formatCurrency(order.totalAmount)}</div>
-                  <div><span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{order.status}</span></div>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => void openDetails(order.id)}
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      View details
-                    </button>
-                  </div>
+            {isLoading ? (
+              <div className="px-6 py-16 text-center text-sm text-slate-500">Loading orders...</div>
+            ) : filteredOrders.length > 0 ? (
+              <DataTable
+                columns={orderColumns}
+                rows={filteredOrders}
+                rowKey={(order) => order.id}
+                className="overflow-x-auto"
+              />
+            ) : (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                  <ScrollText className="h-6 w-6" />
                 </div>
-              )) : <div className="px-6 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><ScrollText className="h-6 w-6" /></div><h2 className="mt-4 text-lg font-semibold text-slate-950">No sales orders yet</h2></div>}
-            </div>
+                <h2 className="mt-4 text-lg font-semibold text-slate-950">No sales orders yet</h2>
+              </div>
+            )}
           </div>
-        </section>
+        </SurfaceCard>
       </section>
       <CustomerQuickCreateDialog
         open={isCustomerDialogOpen}

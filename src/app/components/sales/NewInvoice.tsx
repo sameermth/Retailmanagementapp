@@ -2,6 +2,7 @@ import { AlertCircle, ArrowLeft, Camera, CirclePlus, ScanLine, Trash2 } from "lu
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../../auth";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +50,11 @@ interface InvoiceLineDraft {
   unitPrice: string;
   taxRate: string;
   discountAmount: string;
+}
+
+interface InvoiceLineRow {
+  index: number;
+  line: InvoiceLineDraft;
 }
 
 function createEmptyLine(): InvoiceLineDraft {
@@ -213,6 +219,7 @@ function CameraScannerDialog({ open, onOpenChange, onDetected }: CameraScannerDi
 export function NewInvoice() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
+  const scanInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [customers, setCustomers] = useState<SalesCustomerSummary[]>([]);
   const [products, setProducts] = useState<StoreProductOption[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseResponse[]>([]);
@@ -272,6 +279,39 @@ export function NewInvoice() {
 
   function addLine() {
     setLines((current) => [...current, createEmptyLine()]);
+  }
+
+  function isResolveKey(key: string) {
+    return key === "Enter" || key === "Tab";
+  }
+
+  function isLineBlank(line: InvoiceLineDraft) {
+    return ![
+      line.scanQuery,
+      line.trackingInput,
+      line.productSearch,
+      line.productId,
+      line.productLabel,
+      line.serialId,
+      line.batchId,
+    ].some((value) => value.trim()) && (Number(line.quantity) || 0) === 1 && !(Number(line.unitPrice) || 0) && !(Number(line.discountAmount) || 0) && !(Number(line.taxRate) || 0);
+  }
+
+  function appendBlankLineAndFocus() {
+    setLines((current) => {
+      if (current.length > 0 && isLineBlank(current[current.length - 1])) {
+        return current;
+      }
+
+      return [...current, createEmptyLine()];
+    });
+
+    window.requestAnimationFrame(() => {
+      const nextIndex = scanInputRefs.current.length - 1;
+      if (nextIndex >= 0) {
+        scanInputRefs.current[nextIndex]?.focus();
+      }
+    });
   }
 
   function removeLine(index: number) {
@@ -358,7 +398,7 @@ export function NewInvoice() {
       );
 
       if (index === lines.length - 1) {
-        setLines((current) => [...current, createEmptyLine()]);
+        appendBlankLineAndFocus();
       }
     } catch (err) {
       setLineError(err instanceof Error ? err.message : "Failed to resolve scanned product.");
@@ -457,6 +497,225 @@ export function NewInvoice() {
     () => customers.find((customer) => customer.id === Number(customerId)) ?? null,
     [customerId, customers],
   );
+  const invoiceLineRows: InvoiceLineRow[] = lines.map((line, index) => ({ index, line }));
+  const invoiceLineColumns: DataTableColumn<InvoiceLineRow>[] = [
+    {
+      key: "scan",
+      header: "Scan",
+      sortable: false,
+      filterable: false,
+      render: ({ index, line }) => (
+        <div className="flex min-w-[220px] gap-2">
+          <input
+            ref={(element) => {
+              scanInputRefs.current[index] = element;
+            }}
+            value={line.scanQuery}
+            onChange={(e) => updateLine(index, "scanQuery", e.target.value)}
+            onKeyDown={(event) => {
+              if (isResolveKey(event.key)) {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                }
+                void resolveScan(index);
+              }
+            }}
+            className="crm-field"
+            placeholder="Barcode / QR / serial"
+          />
+          <button
+            type="button"
+            onClick={() => void resolveScan(index)}
+            disabled={scanLoadingIndex === index}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            title="Resolve scan"
+          >
+            <ScanLine className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCameraRowIndex(index);
+              setIsCameraOpen(true);
+            }}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 transition hover:bg-slate-100"
+            title="Scan with camera"
+          >
+            <Camera className="h-4 w-4" />
+          </button>
+        </div>
+      ),
+    },
+    {
+      key: "product",
+      header: "Product",
+      sortable: false,
+      filterable: false,
+      render: ({ index, line }) => {
+        const selectedProduct = products.find((item) => item.id === Number(line.productId));
+        return (
+          <div className="min-w-[260px] space-y-2">
+            <input
+              list={`invoice-product-options-${index}`}
+              value={line.productSearch}
+              onChange={(e) => {
+                updateLine(index, "productSearch", e.target.value);
+                resolveProductSelection(index, e.target.value);
+              }}
+              onBlur={(e) => {
+                resolveProductSelection(index, e.target.value);
+              }}
+              className="crm-field"
+              placeholder="Search product or SKU"
+            />
+            <datalist id={`invoice-product-options-${index}`}>
+              {products.map((product) => (
+                <option key={product.id} value={`${product.name} (${product.sku})`} />
+              ))}
+            </datalist>
+            <div className="text-xs text-slate-500">
+              {line.productLabel ||
+                (selectedProduct ? `UOM #${selectedProduct.baseUomId}` : "Manual entry allowed")}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      key: "tracking",
+      header: "Tracking",
+      sortable: false,
+      filterable: false,
+      render: ({ index, line }) => (
+        <div className="min-w-[190px] text-xs text-slate-600">
+          <input
+            value={line.trackingInput}
+            onChange={(e) => updateLine(index, "trackingInput", e.target.value)}
+            onKeyDown={(event) => {
+              if (isResolveKey(event.key)) {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                }
+                void resolveTrackingInput(index);
+              }
+            }}
+            className="crm-field"
+            placeholder="Serial / batch entry"
+          />
+          <div>{line.serialLabel ? `Serial: ${line.serialLabel}` : "Serial: -"}</div>
+          <div className="mt-1">{line.batchLabel ? `Batch: ${line.batchLabel}` : "Batch: -"}</div>
+          <div className="mt-1 text-slate-500">
+            {line.matchedBy
+              ? `Matched by ${line.matchedBy}`
+              : "Scan tracked stock or enter standard items manually"}
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: "quantity",
+      header: "Qty",
+      sortable: false,
+      filterable: false,
+      render: ({ index, line }) => (
+        <input
+          value={line.quantity}
+          onChange={(e) => updateLine(index, "quantity", e.target.value)}
+          type="number"
+          min="0"
+          step="0.001"
+          className="crm-field min-w-[90px]"
+        />
+      ),
+    },
+    {
+      key: "unitPrice",
+      header: "Unit Price",
+      sortable: false,
+      filterable: false,
+      render: ({ index, line }) => (
+        <input
+          value={line.unitPrice}
+          onChange={(e) => updateLine(index, "unitPrice", e.target.value)}
+          type="number"
+          min="0"
+          step="0.01"
+          className="crm-field min-w-[120px]"
+        />
+      ),
+    },
+    {
+      key: "discount",
+      header: "Discount",
+      sortable: false,
+      filterable: false,
+      render: ({ index, line }) => (
+        <input
+          value={line.discountAmount}
+          onChange={(e) => updateLine(index, "discountAmount", e.target.value)}
+          type="number"
+          min="0"
+          step="0.01"
+          className="crm-field min-w-[110px]"
+        />
+      ),
+    },
+    {
+      key: "taxRate",
+      header: "Tax %",
+      sortable: false,
+      filterable: false,
+      render: ({ index, line }) => (
+        <input
+          value={line.taxRate}
+          onChange={(e) => updateLine(index, "taxRate", e.target.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Tab" &&
+              !event.shiftKey &&
+              index === lines.length - 1 &&
+              !isLineBlank(line)
+            ) {
+              appendBlankLineAndFocus();
+            }
+          }}
+          type="number"
+          min="0"
+          step="0.01"
+          className="crm-field min-w-[90px]"
+        />
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      sortable: false,
+      filterable: false,
+      render: ({ line }) => {
+        const lineAmount = Math.max(
+          (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0) -
+            (Number(line.discountAmount) || 0),
+          0,
+        );
+        return <div className="text-sm font-medium text-slate-900">{formatCurrency(lineAmount)}</div>;
+      },
+    },
+    {
+      key: "actions",
+      header: "Action",
+      sortable: false,
+      filterable: false,
+      render: ({ index }) => (
+        <button
+          type="button"
+          onClick={() => removeLine(index)}
+          className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-rose-600"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ),
+    },
+  ];
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -490,6 +749,7 @@ export function NewInvoice() {
 
     try {
       normalizedLines = lines
+        .filter((line) => !isLineBlank(line))
         .map((line) => {
           const product = products.find((item) => item.id === Number(line.productId));
           const quantity = Number(line.quantity);
@@ -687,8 +947,8 @@ export function NewInvoice() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold text-slate-950">Invoice Lines</h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Use this like a sheet: scan into a row or enter items manually, then keep adding rows.
+                    <p className="mt-1 text-xs text-slate-500">
+                      Scan: barcode/QR quick lookup. Tracking: manual serial or batch fallback.
                     </p>
                   </div>
                   <button type="button" onClick={addLine} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm text-slate-700 transition hover:bg-slate-100">
@@ -703,175 +963,15 @@ export function NewInvoice() {
                   </div>
                 ) : null}
 
-                <div className="overflow-x-auto rounded-3xl border border-slate-200">
-                  <table className="min-w-full border-collapse">
-                    <thead className="bg-slate-50">
-                      <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        <th className="px-4 py-3">Scan</th>
-                        <th className="px-4 py-3">Product</th>
-                        <th className="px-4 py-3">Tracking</th>
-                        <th className="px-4 py-3">Qty</th>
-                        <th className="px-4 py-3">Unit Price</th>
-                        <th className="px-4 py-3">Discount</th>
-                        <th className="px-4 py-3">Tax %</th>
-                        <th className="px-4 py-3">Amount</th>
-                        <th className="px-4 py-3">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 bg-white">
-                      {lines.map((line, index) => {
-                        const selectedProduct = products.find((item) => item.id === Number(line.productId));
-                        const lineAmount = Math.max(
-                          (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0) -
-                            (Number(line.discountAmount) || 0),
-                          0,
-                        );
-
-                        return (
-                          <tr key={`${index}-${line.productId}-${line.scanQuery}`}>
-                            <td className="align-top px-4 py-3">
-                              <div className="flex min-w-[220px] gap-2">
-                                <input
-                                  value={line.scanQuery}
-                                  onChange={(e) => updateLine(index, "scanQuery", e.target.value)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      void resolveScan(index);
-                                    }
-                                  }}
-                                  className="crm-field"
-                                  placeholder="Barcode / QR / serial"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => void resolveScan(index)}
-                                  disabled={scanLoadingIndex === index}
-                                  className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                  title="Resolve scan"
-                                >
-                                  <ScanLine className="h-4 w-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setCameraRowIndex(index);
-                                    setIsCameraOpen(true);
-                                  }}
-                                  className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 transition hover:bg-slate-100"
-                                  title="Scan with camera"
-                                >
-                                  <Camera className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </td>
-                            <td className="align-top px-4 py-3">
-                              <div className="min-w-[260px] space-y-2">
-                                <input
-                                  list={`invoice-product-options-${index}`}
-                                  value={line.productSearch}
-                                  onChange={(e) => {
-                                    updateLine(index, "productSearch", e.target.value);
-                                    resolveProductSelection(index, e.target.value);
-                                  }}
-                                  onBlur={(e) => {
-                                    resolveProductSelection(index, e.target.value);
-                                  }}
-                                  className="crm-field"
-                                  placeholder="Search product or SKU"
-                                />
-                                <datalist id={`invoice-product-options-${index}`}>
-                                  {products.map((product) => (
-                                    <option key={product.id} value={`${product.name} (${product.sku})`} />
-                                  ))}
-                                </datalist>
-                                <div className="text-xs text-slate-500">
-                                  {line.productLabel || (selectedProduct ? `UOM #${selectedProduct.baseUomId}` : "Manual entry allowed")}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="align-top px-4 py-3">
-                              <div className="min-w-[190px] text-xs text-slate-600">
-                                <input
-                                  value={line.trackingInput}
-                                  onChange={(e) => updateLine(index, "trackingInput", e.target.value)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter") {
-                                      event.preventDefault();
-                                      void resolveTrackingInput(index);
-                                    }
-                                  }}
-                                  onBlur={() => void resolveTrackingInput(index)}
-                                  className="crm-field"
-                                  placeholder="Serial / batch entry"
-                                />
-                                <div>{line.serialLabel ? `Serial: ${line.serialLabel}` : "Serial: -"}</div>
-                                <div className="mt-1">{line.batchLabel ? `Batch: ${line.batchLabel}` : "Batch: -"}</div>
-                                <div className="mt-1 text-slate-500">
-                                  {line.matchedBy
-                                    ? `Matched by ${line.matchedBy}`
-                                    : "Scan tracked stock or enter standard items manually"}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="align-top px-4 py-3">
-                              <input
-                                value={line.quantity}
-                                onChange={(e) => updateLine(index, "quantity", e.target.value)}
-                                type="number"
-                                min="0"
-                                step="0.001"
-                                className="crm-field min-w-[90px]"
-                              />
-                            </td>
-                            <td className="align-top px-4 py-3">
-                              <input
-                                value={line.unitPrice}
-                                onChange={(e) => updateLine(index, "unitPrice", e.target.value)}
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                className="crm-field min-w-[120px]"
-                              />
-                            </td>
-                            <td className="align-top px-4 py-3">
-                              <input
-                                value={line.discountAmount}
-                                onChange={(e) => updateLine(index, "discountAmount", e.target.value)}
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                className="crm-field min-w-[110px]"
-                              />
-                            </td>
-                            <td className="align-top px-4 py-3">
-                              <input
-                                value={line.taxRate}
-                                onChange={(e) => updateLine(index, "taxRate", e.target.value)}
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                className="crm-field min-w-[90px]"
-                              />
-                            </td>
-                            <td className="align-top px-4 py-3 text-sm font-medium text-slate-900">
-                              {formatCurrency(lineAmount)}
-                            </td>
-                            <td className="align-top px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={() => removeLine(index)}
-                                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-rose-600"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  className="overflow-x-auto rounded-3xl border border-slate-200"
+                  columns={invoiceLineColumns}
+                  rows={invoiceLineRows}
+                  rowKey={(row) => `${row.index}-${row.line.productId}-${row.line.scanQuery}`}
+                  emptyMessage="Add at least one line to begin invoicing."
+                  enableColumnSorting={false}
+                  enableColumnFilters={false}
+                />
               </div>
             </div>
           )}
@@ -906,9 +1006,7 @@ export function NewInvoice() {
           </button>
         </aside>
       </form>
-    </div>
-  );
-}
+
       <CustomerQuickCreateDialog
         open={isCustomerDialogOpen}
         onOpenChange={setIsCustomerDialogOpen}
@@ -917,3 +1015,6 @@ export function NewInvoice() {
           setCustomerId(String(customer.id));
         }}
       />
+    </div>
+  );
+}

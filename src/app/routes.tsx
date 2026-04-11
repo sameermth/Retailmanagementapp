@@ -67,6 +67,20 @@ function HomeIndexRedirect() {
   return <Navigate to={isPlatformAdmin ? "/platform-admin/overview" : "/dashboard"} replace />;
 }
 
+function DashboardEntry() {
+  const { isPlatformAdmin } = useAuth();
+
+  if (isPlatformAdmin) {
+    return <Navigate to="/platform-admin/overview" replace />;
+  }
+
+  return (
+    <RouteGate path="/dashboard">
+      <AppShellHome />
+    </RouteGate>
+  );
+}
+
 const implementedPaths = new Set([
   "/inventory/items",
   "/inventory/items/new",
@@ -143,7 +157,7 @@ export const router = createBrowserRouter([
     Component: Root,
     children: [
       { index: true, element: <HomeIndexRedirect /> },
-      { path: "dashboard", element: <RouteGate path="/dashboard"><AppShellHome /></RouteGate> },
+      { path: "dashboard", element: <DashboardEntry /> },
       { path: "banking/overview", element: <RouteGate path="/banking/overview"><BankingOverview /></RouteGate> },
       { path: "banking/accounts", element: <RouteGate path="/banking/accounts"><BankAccounts /></RouteGate> },
       { path: "banking/import-statement", element: <RouteGate path="/banking/import-statement"><ImportStatement /></RouteGate> },

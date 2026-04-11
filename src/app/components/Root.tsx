@@ -65,7 +65,18 @@ export function Root() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openSectionId, setOpenSectionId] = useState<string | null>(null);
-  const { user, logout, capabilities, canAccess, hasAnyPermission, isPlatformAdmin } = useAuth();
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [isSwitchingOrganization, setIsSwitchingOrganization] = useState(false);
+  const [organizationSwitchError, setOrganizationSwitchError] = useState("");
+  const {
+    user,
+    logout,
+    capabilities,
+    canAccess,
+    hasAnyPermission,
+    isPlatformAdmin,
+    switchOrganization,
+  } = useAuth();
   const visibleSections = useMemo(
     () => getVisibleSections(sidebarSections, canAccess, hasAnyPermission, isPlatformAdmin),
     [canAccess, hasAnyPermission, isPlatformAdmin],
@@ -91,6 +102,10 @@ export function Root() {
     }
   }, [location.pathname, visibleSections]);
 
+  useEffect(() => {
+    setSelectedOrganizationId(user?.organizationId ? String(user.organizationId) : "");
+  }, [user?.organizationId]);
+
   function toggleSection(sectionId: string) {
     setOpenSectionId((current) => (current === sectionId ? null : sectionId));
   }
@@ -99,6 +114,35 @@ export function Root() {
     capabilities.subscriptionStatus === "ACTIVE" || capabilities.subscriptionStatus === "TRIAL"
       ? "bg-emerald-50 text-emerald-700"
       : "bg-amber-50 text-amber-700";
+
+  const organizationChoices =
+    !isPlatformAdmin && user?.memberships && user.memberships.length > 1
+      ? user.memberships.filter((membership) => membership.active !== false)
+      : [];
+
+  async function handleOrganizationChange(nextOrganizationId: string) {
+    if (!nextOrganizationId) {
+      return;
+    }
+
+    setSelectedOrganizationId(nextOrganizationId);
+    setOrganizationSwitchError("");
+    if (String(user?.organizationId ?? "") === nextOrganizationId) {
+      return;
+    }
+
+    setIsSwitchingOrganization(true);
+    try {
+      await switchOrganization(Number(nextOrganizationId));
+    } catch (error) {
+      setOrganizationSwitchError(
+        error instanceof Error ? error.message : "Failed to switch organization.",
+      );
+      setSelectedOrganizationId(String(user?.organizationId ?? ""));
+    } finally {
+      setIsSwitchingOrganization(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -131,6 +175,27 @@ export function Root() {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
+            {organizationChoices.length > 0 && (
+              <div className="hidden min-w-[260px] sm:block">
+                <select
+                  value={selectedOrganizationId}
+                  onChange={(event) => void handleOrganizationChange(event.target.value)}
+                  disabled={isSwitchingOrganization}
+                  className="crm-select h-9 w-full py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Switch organization"
+                >
+                  {organizationChoices.map((membership) => (
+                    <option key={`${membership.organizationId}-${membership.userId ?? "self"}`} value={membership.organizationId}>
+                      {(membership.organizationName || `Organization ${membership.organizationId}`) +
+                        (membership.roleName ? ` · ${membership.roleName}` : "")}
+                    </option>
+                  ))}
+                </select>
+                {organizationSwitchError ? (
+                  <div className="mt-1 text-xs text-rose-600">{organizationSwitchError}</div>
+                ) : null}
+              </div>
+            )}
             <div className={`hidden rounded-full px-3 py-1 text-xs font-semibold sm:block ${subscriptionBadge}`}>
               {capabilities.plan} · {capabilities.subscriptionStatus}
             </div>

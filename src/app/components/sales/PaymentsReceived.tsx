@@ -1,6 +1,8 @@
 import { AlertCircle, BadgeIndianRupee, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
+import { MetricCard, SurfaceCard } from "../ui/surface";
 import {
   createReceipt,
   fetchReceiptPdf,
@@ -94,6 +96,71 @@ export function PaymentsReceived() {
     { totalAmount: 0 },
   );
 
+  const receiptColumns = useMemo<DataTableColumn<CustomerReceiptResponse>[]>(
+    () => [
+      {
+        key: "receipt",
+        header: "Receipt",
+        value: (receipt) => `${receipt.receiptNumber} ${receipt.customerId}`,
+        render: (receipt) => (
+          <div>
+            <div className="text-base font-semibold text-slate-950">{receipt.receiptNumber}</div>
+            <div className="mt-1 text-sm text-slate-500">Customer #{receipt.customerId}</div>
+          </div>
+        ),
+      },
+      {
+        key: "date",
+        header: "Date",
+        value: (receipt) => receipt.receiptDate,
+        render: (receipt) => (
+          <span className="text-sm text-slate-600">
+            {new Date(receipt.receiptDate).toLocaleDateString("en-IN")}
+          </span>
+        ),
+      },
+      {
+        key: "amount",
+        header: "Amount",
+        value: (receipt) => receipt.amount,
+        render: (receipt) => <span className="text-sm font-medium text-slate-900">{formatCurrency(receipt.amount)}</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (receipt) => receipt.status,
+        render: (receipt) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            {receipt.status}
+          </span>
+        ),
+      },
+      {
+        key: "action",
+        header: "Action",
+        sortable: false,
+        filterable: false,
+        render: (receipt) => (
+          <button
+            type="button"
+            onClick={() => {
+              if (receiptPdfUrl) {
+                URL.revokeObjectURL(receiptPdfUrl);
+                setReceiptPdfUrl(null);
+              }
+              setReceiptPdfError("");
+              setSelectedReceipt(receipt);
+            }}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            View details
+          </button>
+        ),
+      },
+    ],
+    [receiptPdfUrl],
+  );
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -167,7 +234,7 @@ export function PaymentsReceived() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+      <SurfaceCard as="section" padding="lg">
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Sales</div>
           <h1 className="mt-3 text-3xl font-semibold text-slate-950">Customer Receipts</h1>
@@ -175,25 +242,16 @@ export function PaymentsReceived() {
             Live ERP customer receipt flow using `/api/erp/sales/receipts`.
           </p>
         </div>
-      </section>
+      </SurfaceCard>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Receipts</div>
-          <div className="mt-4 text-3xl font-semibold text-slate-950">{filteredReceipts.length}</div>
-        </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Collected</div>
-          <div className="mt-4 text-3xl font-semibold text-slate-950">{formatCurrency(summary.totalAmount)}</div>
-        </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Customers</div>
-          <div className="mt-4 text-3xl font-semibold text-slate-950">{customers.length}</div>
-        </div>
+        <MetricCard label="Receipts" value={filteredReceipts.length} />
+        <MetricCard label="Collected" value={formatCurrency(summary.totalAmount)} />
+        <MetricCard label="Customers" value={customers.length} />
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <form onSubmit={handleSubmit} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="grid gap-6 xl:grid-cols-[520px_minmax(0,1fr)] 2xl:grid-cols-[560px_minmax(0,1fr)]">
+        <SurfaceCard as="form" onSubmit={handleSubmit}>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
               <BadgeIndianRupee className="h-5 w-5" />
@@ -269,9 +327,9 @@ export function PaymentsReceived() {
               {isSubmitting ? "Creating receipt..." : "Create customer receipt"}
             </button>
           </div>
-        </form>
+        </SurfaceCard>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SurfaceCard as="section">
           <div className="relative">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -283,53 +341,20 @@ export function PaymentsReceived() {
           </div>
 
           <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-            <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
-              <div>Receipt</div>
-              <div>Date</div>
-              <div>Amount</div>
-              <div>Status</div>
-              <div>Action</div>
-            </div>
-
-            <div className="divide-y divide-slate-200">
-              {isLoading ? (
-                <div className="px-6 py-16 text-center text-sm text-slate-500">Loading receipts...</div>
-              ) : filteredReceipts.length > 0 ? (
-                filteredReceipts.map((receipt) => (
-                  <div key={receipt.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr_0.8fr] lg:items-center">
-                    <div>
-                      <div className="text-base font-semibold text-slate-950">{receipt.receiptNumber}</div>
-                      <div className="mt-1 text-sm text-slate-500">Customer #{receipt.customerId}</div>
-                    </div>
-                    <div className="text-sm text-slate-600">{new Date(receipt.receiptDate).toLocaleDateString("en-IN")}</div>
-                    <div className="text-sm font-medium text-slate-900">{formatCurrency(receipt.amount)}</div>
-                    <div>
-                      <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{receipt.status}</span>
-                    </div>
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (receiptPdfUrl) {
-                            URL.revokeObjectURL(receiptPdfUrl);
-                            setReceiptPdfUrl(null);
-                          }
-                          setReceiptPdfError("");
-                          setSelectedReceipt(receipt);
-                        }}
-                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        View details
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-6 py-16 text-center text-sm text-slate-500">No receipts found.</div>
-              )}
-            </div>
+            {isLoading ? (
+              <div className="px-6 py-16 text-center text-sm text-slate-500">Loading receipts...</div>
+            ) : filteredReceipts.length > 0 ? (
+              <DataTable
+                columns={receiptColumns}
+                rows={filteredReceipts}
+                rowKey={(receipt) => receipt.id}
+                className="overflow-x-auto"
+              />
+            ) : (
+              <div className="px-6 py-16 text-center text-sm text-slate-500">No receipts found.</div>
+            )}
           </div>
-        </section>
+        </SurfaceCard>
       </section>
 
       <DocumentDetailsDialog

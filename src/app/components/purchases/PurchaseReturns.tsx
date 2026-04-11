@@ -1,6 +1,7 @@
 import { AlertCircle, CirclePlus, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
 import {
   createPurchaseReturn,
   fetchPurchaseReceipt,
@@ -93,6 +94,47 @@ export function PurchaseReturns() {
   const eligibleReceipts = useMemo(
     () => receipts.filter((receipt) => receipt.status !== "CANCELLED"),
     [receipts],
+  );
+
+  const returnColumns = useMemo<DataTableColumn<PurchaseReturnSummaryResponse>[]>(
+    () => [
+      {
+        key: "return",
+        header: "Return",
+        value: (item) => `${item.returnNumber} ${item.originalPurchaseReceiptId}`,
+        render: (item) => (
+          <div>
+            <div className="text-base font-semibold text-slate-950">{item.returnNumber}</div>
+            <div className="mt-1 text-sm text-slate-500">Original receipt #{item.originalPurchaseReceiptId}</div>
+          </div>
+        ),
+      },
+      {
+        key: "date",
+        header: "Date",
+        value: (item) => item.returnDate,
+        render: (item) => (
+          <span className="text-sm text-slate-600">{new Date(item.returnDate).toLocaleDateString("en-IN")}</span>
+        ),
+      },
+      {
+        key: "total",
+        header: "Total",
+        value: (item) => item.totalAmount,
+        render: (item) => <span className="text-sm font-medium text-slate-900">{formatCurrency(item.totalAmount)}</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (item) => item.status,
+        render: (item) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            {item.status}
+          </span>
+        ),
+      },
+    ],
+    [],
   );
 
   function updateQuantity(lineId: number, quantity: string) {
@@ -191,7 +233,7 @@ export function PurchaseReturns() {
         </p>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+      <section className="grid gap-6 xl:grid-cols-[520px_minmax(0,1fr)] 2xl:grid-cols-[560px_minmax(0,1fr)]">
         <form onSubmit={handleCreateReturn} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-slate-100 p-3 text-slate-700"><CirclePlus className="h-5 w-5" /></div>
@@ -266,28 +308,23 @@ export function PurchaseReturns() {
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="overflow-hidden rounded-3xl border border-slate-200">
-            <div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
-              <div>Return</div><div>Date</div><div>Total</div><div>Status</div>
-            </div>
-            <div className="divide-y divide-slate-200">
-              {isLoading ? (
-                <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase returns...</div>
-              ) : returns.length > 0 ? (
-                returns.map((item) => (
-                  <div key={item.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr] lg:items-center">
-                    <div><div className="text-base font-semibold text-slate-950">{item.returnNumber}</div><div className="mt-1 text-sm text-slate-500">Original receipt #{item.originalPurchaseReceiptId}</div></div>
-                    <div className="text-sm text-slate-600">{new Date(item.returnDate).toLocaleDateString("en-IN")}</div>
-                    <div className="text-sm font-medium text-slate-900">{formatCurrency(item.totalAmount)}</div>
-                    <div><span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{item.status}</span></div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-6 py-16 text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><RotateCcw className="h-6 w-6" /></div>
-                  <h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase returns yet</h2>
+            {isLoading ? (
+              <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase returns...</div>
+            ) : returns.length > 0 ? (
+              <DataTable
+                columns={returnColumns}
+                rows={returns}
+                rowKey={(item) => item.id}
+                className="overflow-x-auto"
+              />
+            ) : (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                  <RotateCcw className="h-6 w-6" />
                 </div>
-              )}
-            </div>
+                <h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase returns yet</h2>
+              </div>
+            )}
           </div>
         </section>
       </section>

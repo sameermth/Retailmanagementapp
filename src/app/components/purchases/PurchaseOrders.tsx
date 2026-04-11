@@ -2,6 +2,7 @@ import { AlertCircle, CirclePlus, Search, ShoppingBasket, Trash2 } from "lucide-
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { fetchStoreProducts, type StoreProductResponse } from "../inventory/api";
+import { DataTable, type DataTableColumn } from "../ui/data-table";
 import {
   createPurchaseOrder,
   fetchSupplierCatalog,
@@ -89,6 +90,47 @@ export function PurchaseOrders() {
     [supplierId, suppliers],
   );
 
+  const purchaseOrderColumns = useMemo<DataTableColumn<PurchaseOrderSummaryResponse>[]>(
+    () => [
+      {
+        key: "po",
+        header: "PO",
+        value: (order) => `${order.poNumber} ${order.supplierId}`,
+        render: (order) => (
+          <div>
+            <div className="text-base font-semibold text-slate-950">{order.poNumber}</div>
+            <div className="mt-1 text-sm text-slate-500">Supplier #{order.supplierId}</div>
+          </div>
+        ),
+      },
+      {
+        key: "date",
+        header: "Date",
+        value: (order) => order.poDate,
+        render: (order) => (
+          <span className="text-sm text-slate-600">{new Date(order.poDate).toLocaleDateString("en-IN")}</span>
+        ),
+      },
+      {
+        key: "total",
+        header: "Total",
+        value: (order) => order.totalAmount,
+        render: (order) => <span className="text-sm font-medium text-slate-900">{formatCurrency(order.totalAmount)}</span>,
+      },
+      {
+        key: "status",
+        header: "Status",
+        value: (order) => order.status,
+        render: (order) => (
+          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+            {order.status}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
+
   async function handleCreateOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || !user?.organizationId || !user.defaultBranchId) {
@@ -148,7 +190,7 @@ export function PurchaseOrders() {
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Purchase Orders</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">Live ERP purchase orders from `/api/erp/purchases/orders`, with direct order creation.</p>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+      <section className="grid gap-6 xl:grid-cols-[520px_minmax(0,1fr)] 2xl:grid-cols-[560px_minmax(0,1fr)]">
         <form onSubmit={handleCreateOrder} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3"><div className="rounded-2xl bg-slate-100 p-3 text-slate-700"><CirclePlus className="h-5 w-5" /></div><div><div className="text-lg font-semibold text-slate-950">Create Purchase Order</div><div className="text-sm text-slate-500">Direct ERP purchase order flow</div></div></div>
           <div className="mt-6 space-y-4">
@@ -217,7 +259,25 @@ export function PurchaseOrders() {
         </form>
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="relative"><Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search PO number or status" className="crm-field pl-11" /></div>
-          <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200"><div className="hidden grid-cols-[1fr_0.9fr_0.9fr_0.8fr] gap-4 bg-slate-50 px-5 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid"><div>PO</div><div>Date</div><div>Total</div><div>Status</div></div><div className="divide-y divide-slate-200">{isLoading ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase orders...</div> : filteredOrders.length > 0 ? filteredOrders.map((order) => <div key={order.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.9fr_0.9fr_0.8fr] lg:items-center"><div><div className="text-base font-semibold text-slate-950">{order.poNumber}</div><div className="mt-1 text-sm text-slate-500">Supplier #{order.supplierId}</div></div><div className="text-sm text-slate-600">{new Date(order.poDate).toLocaleDateString("en-IN")}</div><div className="text-sm font-medium text-slate-900">{formatCurrency(order.totalAmount)}</div><div><span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">{order.status}</span></div></div>) : <div className="px-6 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500"><ShoppingBasket className="h-6 w-6" /></div><h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase orders yet</h2></div>}</div></div>
+          <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
+            {isLoading ? (
+              <div className="px-6 py-16 text-center text-sm text-slate-500">Loading purchase orders...</div>
+            ) : filteredOrders.length > 0 ? (
+              <DataTable
+                columns={purchaseOrderColumns}
+                rows={filteredOrders}
+                rowKey={(order) => order.id}
+                className="overflow-x-auto"
+              />
+            ) : (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                  <ShoppingBasket className="h-6 w-6" />
+                </div>
+                <h2 className="mt-4 text-lg font-semibold text-slate-950">No purchase orders yet</h2>
+              </div>
+            )}
+          </div>
         </section>
       </section>
     </div>

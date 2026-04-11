@@ -2,6 +2,7 @@ import { AlertCircle, CirclePlus, PlayCircle, RefreshCcw, Trash2 } from "lucide-
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth";
 import { fetchWarehouses, type WarehouseResponse } from "../inventory/api";
+import { SurfaceCard } from "../ui/surface";
 import {
   createRecurringInvoice,
   fetchRecurringInvoices,
@@ -178,17 +179,17 @@ export function RecurringInvoices() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+      <SurfaceCard as="section" padding="lg">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Sales</div>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">Recurring Invoices</h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
           This screen is now aligned to the live ERP recurring invoice template flow and supports
           both template creation and immediate run actions.
         </p>
-      </section>
+      </SurfaceCard>
 
-      <section className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
-        <form onSubmit={handleCreate} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="grid gap-6 xl:grid-cols-[520px_minmax(0,1fr)] 2xl:grid-cols-[560px_minmax(0,1fr)]">
+        <SurfaceCard as="form" onSubmit={handleCreate}>
           <div className="flex items-center gap-3">
             <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
               <CirclePlus className="h-5 w-5" />
@@ -296,9 +297,9 @@ export function RecurringInvoices() {
               {isSubmitting ? "Creating..." : "Create recurring template"}
             </button>
           </div>
-        </form>
+        </SurfaceCard>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SurfaceCard as="section">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-slate-950">Recurring Templates</h2>
@@ -343,7 +344,7 @@ export function RecurringInvoices() {
               <div className="text-sm text-slate-500">No recurring invoice templates returned yet.</div>
             )}
           </div>
-        </section>
+        </SurfaceCard>
       </section>
     </div>
   );
